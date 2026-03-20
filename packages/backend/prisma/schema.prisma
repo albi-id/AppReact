@@ -48,28 +48,38 @@ model DriverProfile {
 
 // Modelo de servicio/viaje (el core del negocio)
 model Service {
-  id          String      @id @default(uuid())
-  requesterId String
-  driverId    String?
-  type        VehicleType
-  pickupLat   Float?
-  pickupLng   Float?
-  status      ServiceStatus @default(REQUESTED)
-  requestedAt DateTime    @default(now())
-  acceptedAt  DateTime?
-  arrivedAt   DateTime?
-  waitStartAt DateTime?
-  waitEndAt   DateTime?
-  amount      Float?      // Calculado al final (ARS)
+  id            String        @id @default(uuid())
+  requesterId   String
+  driverId      String?
+  type          VehicleType
+  pickupLat     Float?
+  pickupLng     Float?
+  status        ServiceStatus @default(REQUESTED)
+  requestedAt   DateTime      @default(now())
+  acceptedAt    DateTime?
+  arrivedAt     DateTime?
+  waitStartAt   DateTime?
+  waitEndAt     DateTime?
+  amount        Float?        // Calculado al final (ARS)
   paymentMethod PaymentMethod?
-  notes       String?
+  paidAt        DateTime?     // ← Nuevo: fecha de pago
+  notes         String?
 
-  requester   User        @relation("Requester", fields: [requesterId], references: [id])
-  driver      User?       @relation("Driver", fields: [driverId], references: [id])
+  requester     User          @relation("Requester", fields: [requesterId], references: [id])
+  driver        User?         @relation("Driver", fields: [driverId], references: [id])
 
   @@index([status])
   @@index([requesterId])
   @@index([driverId])
+}
+
+model Tariff {
+  id          String      @id @default(uuid())
+  vehicleType VehicleType @unique
+  hourlyRate  Float
+  currency    String      @default("ARS")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 }
 
 enum ServiceStatus {
@@ -81,6 +91,7 @@ enum ServiceStatus {
   COMPLETED
   CANCELED
   REJECTED
+  PAID  
 }
 
 enum PaymentMethod {
