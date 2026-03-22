@@ -16,17 +16,21 @@
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.90.1",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
+    "generate": "^0.14.0",
+    "npx": "^10.2.2",
     "winston": "^3.19.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@prisma/client": "^5.20.0",
+    "@prisma/client": "^5.22.0",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
     "dotenv": "^16.6.1",
     "nodemon": "^3.1.11",
-    "prisma": "^5.20.0",
+    "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }
