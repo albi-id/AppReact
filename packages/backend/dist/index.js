@@ -1,9 +1,14 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
 // src/index.ts
-import express from 'express';
-import { PrismaClient } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
-import 'dotenv/config';
-import cors from 'cors';
+const express_1 = __importDefault(require("express"));
+const client_1 = require("@prisma/client");
+const supabase_js_1 = require("@supabase/supabase-js");
+require("dotenv/config");
+const cors_1 = __importDefault(require("cors"));
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 // Middleware de autenticación (para rutas protegidas)
 const authenticate = async (req, res, next) => {
@@ -30,14 +35,14 @@ const authenticate = async (req, res, next) => {
     next();
 };
 // Prisma Client clásico (lee DATABASE_URL del .env automáticamente)
-const prisma = new PrismaClient();
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-const app = express();
-app.use(cors({
+const prisma = new client_1.PrismaClient();
+const supabase = (0, supabase_js_1.createClient)(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+const app = (0, express_1.default)();
+app.use((0, cors_1.default)({
     origin: 'http://localhost:5173', // Permite solo tu frontend Vite
 }));
-const port = 3000;
-app.use(express.json());
+const port = Number(process.env.PORT) || 10000;
+app.use(express_1.default.json());
 // Health check
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', prismaReady: true });
@@ -1204,9 +1209,9 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req, res) => {
         res.status(500).json({ error: 'Error interno' });
     }
 });
-app.listen(port, () => {
-    console.log(`Server en http://localhost:${port}`);
-    console.log(`→ Health: http://localhost:${port}/health`);
-    console.log(`→ Usuarios: http://localhost:${port}/users`);
-    console.log(`→ Registro: POST http://localhost:${port}/register`);
+app.listen(port, "0.0.0.0", () => {
+    console.log(`Server running on port ${port}`);
+    console.log(`→ Health: /health`);
+    console.log(`→ Usuarios: /users`);
+    console.log(`→ Registro: POST /register`);
 });
