@@ -17,5 +17,5 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", "prisma/**/*"]
+  "exclude": ["node_modules", "dist", "prisma/**/*","src/prisma.config.ts"]
 }
