@@ -85,7 +85,7 @@ useEffect(() => {
         table: 'service',
         filter: `driverId=eq.${user.id}`,
       },
-      (payload) => {
+      (payload: any) => {
         console.log('Evento Realtime recibido:', payload);
         if (payload.new.status === 'OFFERED') {
           alert('¡Nueva oferta de servicio recibida! Revisa tus asignados.');
@@ -93,7 +93,7 @@ useEffect(() => {
         }
       }
     )
-    .subscribe((status) => {
+    .subscribe((status: string) => {
       console.log('Estado de suscripción:', status);
       if (status === 'SUBSCRIBED') {
         console.log('¡Realtime suscrito correctamente!');
