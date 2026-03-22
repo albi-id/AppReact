@@ -55,7 +55,8 @@ app.use(cors({
   origin: 'http://localhost:5173',  // Permite solo tu frontend Vite
 }));
 
-const port = 3000;
+const port = Number(process.env.PORT) || 10000;
+
 
 app.use(express.json());
 
@@ -1422,9 +1423,9 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server en http://localhost:${port}`);
-  console.log(`→ Health: http://localhost:${port}/health`);
-  console.log(`→ Usuarios: http://localhost:${port}/users`);
-  console.log(`→ Registro: POST http://localhost:${port}/register`);
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Server running on port ${port}`);
+  console.log(`→ Health: /health`);
+  console.log(`→ Usuarios: /users`);
+  console.log(`→ Registro: POST /register`);
 });
