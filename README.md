@@ -70,6 +70,7 @@ driver
  -------------------------14/2/26
  1. Comandos para poner a correr el proyecto (hoy 14/02/2026)
 Abre varias terminales (o usa pestañas) en D:\AppReact\conGrok
+
 Terminal 1 – Backend
 Bashcd packages\backend
 npm install               # si hace tiempo que no lo abrís
@@ -79,6 +80,7 @@ Deberías ver:
 textDATABASE_URL cargada: Sí
 Server en http://localhost:3000
 → Health: http://localhost:3000/health
+
 Terminal 2 – Frontend Web (Vite)
 Bashcd packages\web
 npm install               # si agregaste paquetes o hace tiempo
