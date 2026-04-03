@@ -51,9 +51,18 @@ const supabase = createClient(
 );
 
 const app = express();
+//app.use(cors({
+//  origin: 'http://localhost:5173',  // Permite solo tu frontend Vite
+//}));
+
+
 app.use(cors({
-  origin: 'http://localhost:5173',  // Permite solo tu frontend Vite
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',   // ← debe leer la variable
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 
 const port = Number(process.env.PORT) || 10000;
 
