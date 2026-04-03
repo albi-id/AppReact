@@ -1,7 +1,23 @@
-*/node_modules
-*/node_modules/*
+# Dependencias
+node_modules/
+**/node_modules/
+
+# Archivos de entorno
 .env
 .env.local
-.env.production
 .env.development
+.env.production
 *.env
+
+# Lock files (no queremos subirlos)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Carpetas de build
+dist/
+build/
+
+# Otros archivos temporales
+.DS_Store
+*.log
