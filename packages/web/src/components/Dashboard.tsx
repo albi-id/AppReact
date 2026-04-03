@@ -114,7 +114,7 @@ useEffect(() => {
     services.forEach(s => {
       if (['OFFERED', 'ACCEPTED', 'ARRIVED'].includes(s.status) && s.driver && !etas[s.id]) {
         const fetchEta = async () => {
-          setEtaLoading(prev => ({ ...prev, [s.id]: true }));
+          setEtaLoading((prev: any) => ({ ...prev, [s.id]: true }));
           try {
             const token = localStorage.getItem('token');
             const res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/services/${s.id}/eta`, {
