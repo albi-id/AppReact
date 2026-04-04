@@ -30,7 +30,7 @@ function App() {
 <header className="fixed top-0 left-0 right-0 bg-black border-b border-gray-800 z-50">
   <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
     <div className="flex justify-between items-center h-16">
-      <Link to="/dashboard" className="text-2xl font-bold">Neos</Link>
+      <Link to="/dashboard" className="text-2xl font-bold">Neꭙos</Link>
 
       {/* Botón de perfil SIEMPRE que haya token (USER o DRIVER) */}
       {localStorage.getItem('token') && (
