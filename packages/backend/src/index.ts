@@ -400,7 +400,7 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
  //   res.status(500).json({ error: 'Error interno al crear solicitud' });
  // }
 //});
-// HU-07: Solicitar servicio (USER)
+// HU-07: Solicitar servicio (USER) + Matching automático
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'USER') {
@@ -409,8 +409,12 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     const { type, pickupLat, pickupLng } = req.body;
 
-    if (!type || !pickupLat || !pickupLng) {
-      return res.status(400).json({ error: 'type, pickupLat y pickupLng son requeridos' });
+    if (!type || !['MOTO', 'TAXI', 'TRAFIC'].includes(type)) {
+      return res.status(400).json({ error: 'type debe ser MOTO, TAXI o TRAFIC' });
+    }
+
+    if (!pickupLat || !pickupLng) {
+      return res.status(400).json({ error: 'pickupLat y pickupLng son requeridos' });
     }
 
     const newService = await prisma.service.create({
@@ -423,18 +427,33 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    // ←←← NUEVO: Llamar automáticamente al matching después de crear el servicio
-    // Esto hace que se asigne al conductor más cercano
+    console.log(`Servicio creado: ${newService.id} - ${type}`);
+
+    // Llamada automática al matching
     setTimeout(async () => {
       try {
-        await axios.post(`${process.env.BACKEND_URL || 'http://localhost:3000'}/services/match`, 
+        const token = req.headers.authorization?.split(' ')[1];
+
+        if (!token) {
+          console.error('No se encontró token para matching automático');
+          return;
+        }
+
+        await axios.post(`https://app-nexos-backend.onrender.com/services/match`, 
           { serviceId: newService.id },
-          { headers: { Authorization: `Bearer ${req.headers.authorization?.split(' ')[1]}` } }
+          { 
+            headers: { 
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            } 
+          }
         );
-      } catch (e) {
-        console.error('Error en matching automático:', e);
+
+        console.log(`Matching automático ejecutado para servicio ${newService.id}`);
+      } catch (e: any) {
+        console.error('Error en matching automático:', e.response?.data || e.message);
       }
-    }, 1000);
+    }, 1500); // 1.5 segundos de delay para dar tiempo a que se guarde el servicio
 
     res.json({
       message: "Servicio solicitado correctamente",
@@ -443,7 +462,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
   } catch (error: any) {
     console.error('Error al solicitar servicio:', error);
-    res.status(500).json({ error: 'Error interno' });
+    res.status(500).json({ error: 'Error interno al crear solicitud' });
   }
 });
 
