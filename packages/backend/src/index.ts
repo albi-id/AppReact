@@ -4,7 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 import 'dotenv/config';
 import cors from 'cors';
-
+import axios from 'axios';
 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -353,51 +353,97 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
 });
 
 // HU-07: Solicitar servicio por tipo de vehículo (solo USER)
-app.post('/services/request', authenticate, async (req: any, res: any) => {
-  const { vehicleType, lat, lng } = req.body;
+//app.post('/services/request', authenticate, async (req: any, res: any) => {
+  //const { vehicleType, lat, lng } = req.body;
 
   // Validaciones
-  if (!vehicleType || !['TAXI', 'TRAFIC', 'MOTO'].includes(vehicleType)) {
-    return res.status(400).json({ error: 'vehicleType debe ser TAXI, TRAFIC o MOTO' });
-  }
+  //if (!vehicleType || !['TAXI', 'TRAFIC', 'MOTO'].includes(vehicleType)) {
+    //return res.status(400).json({ error: 'vehicleType debe ser TAXI, TRAFIC o MOTO' });
+ // }
 
-  if (typeof lat !== 'number' || typeof lng !== 'number') {
-    return res.status(400).json({ error: 'lat y lng deben ser números' });
-  }
+  //if (typeof lat !== 'number' || typeof lng !== 'number') {
+    //return res.status(400).json({ error: 'lat y lng deben ser números' });
+  //}
 
-  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-    return res.status(400).json({ error: 'Coordenadas inválidas' });
-  }
+  //if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    //return res.status(400).json({ error: 'Coordenadas inválidas' });
+  //}
 
+ // try {
+   // if (req.dbUser.role !== 'USER') {
+     // return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
+  //  }
+
+    //const newService = await prisma.service.create({
+      //data: {
+        //requesterId: req.user.id,
+      //  type: vehicleType,
+        //pickupLat: lat,
+       // pickupLng: lng,
+        //status: 'REQUESTED',
+       // requestedAt: new Date(),
+      //},
+   // });
+
+  //  res.status(201).json({
+    //  message: 'Servicio solicitado correctamente',
+     // service: {
+      //  id: newService.id,
+      //  type: newService.type,
+      //  status: newService.status,
+       // pickup: { lat: newService.pickupLat, lng: newService.pickupLng },
+     //   requestedAt: newService.requestedAt,
+   //   },
+  //  });
+  //} catch (error: any) {
+ //   console.error('Error al solicitar servicio:', error);
+ //   res.status(500).json({ error: 'Error interno al crear solicitud' });
+ // }
+//});
+// HU-07: Solicitar servicio (USER)
+app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'USER') {
       return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
     }
 
+    const { type, pickupLat, pickupLng } = req.body;
+
+    if (!type || !pickupLat || !pickupLng) {
+      return res.status(400).json({ error: 'type, pickupLat y pickupLng son requeridos' });
+    }
+
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
-        type: vehicleType,
-        pickupLat: lat,
-        pickupLng: lng,
+        type: type as any,
+        pickupLat: parseFloat(pickupLat),
+        pickupLng: parseFloat(pickupLng),
         status: 'REQUESTED',
-        requestedAt: new Date(),
       },
     });
 
-    res.status(201).json({
-      message: 'Servicio solicitado correctamente',
-      service: {
-        id: newService.id,
-        type: newService.type,
-        status: newService.status,
-        pickup: { lat: newService.pickupLat, lng: newService.pickupLng },
-        requestedAt: newService.requestedAt,
-      },
+    // ←←← NUEVO: Llamar automáticamente al matching después de crear el servicio
+    // Esto hace que se asigne al conductor más cercano
+    setTimeout(async () => {
+      try {
+        await axios.post(`${process.env.BACKEND_URL || 'http://localhost:3000'}/services/match`, 
+          { serviceId: newService.id },
+          { headers: { Authorization: `Bearer ${req.headers.authorization?.split(' ')[1]}` } }
+        );
+      } catch (e) {
+        console.error('Error en matching automático:', e);
+      }
+    }, 1000);
+
+    res.json({
+      message: "Servicio solicitado correctamente",
+      service: newService,
     });
+
   } catch (error: any) {
     console.error('Error al solicitar servicio:', error);
-    res.status(500).json({ error: 'Error interno al crear solicitud' });
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
