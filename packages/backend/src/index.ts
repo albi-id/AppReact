@@ -400,6 +400,8 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
  //   res.status(500).json({ error: 'Error interno al crear solicitud' });
  // }
 //});
+
+
 // HU-07: Solicitar servicio (USER) + Matching automático
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
@@ -427,17 +429,19 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`Servicio creado: ${newService.id} - ${type}`);
+    console.log(`✅ Servicio creado: ${newService.id} - Tipo: ${type}`);
 
-    // Llamada automática al matching
+    // Llamada automática al matching (más robusta)
     setTimeout(async () => {
       try {
         const token = req.headers.authorization?.split(' ')[1];
 
         if (!token) {
-          console.error('No se encontró token para matching automático');
+          console.error('❌ No se encontró token para matching automático');
           return;
         }
+
+        console.log(`🔄 Ejecutando matching automático para servicio ${newService.id}`);
 
         await axios.post(`https://app-nexos-backend.onrender.com/services/match`, 
           { serviceId: newService.id },
@@ -449,11 +453,11 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
           }
         );
 
-        console.log(`Matching automático ejecutado para servicio ${newService.id}`);
+        console.log(`✅ Matching automático completado para servicio ${newService.id}`);
       } catch (e: any) {
-        console.error('Error en matching automático:', e.response?.data || e.message);
+        console.error('❌ Error en matching automático:', e.response?.data || e.message);
       }
-    }, 1500); // 1.5 segundos de delay para dar tiempo a que se guarde el servicio
+    }, 2000); // 2 segundos de delay
 
     res.json({
       message: "Servicio solicitado correctamente",
