@@ -1,5 +1,5 @@
-// src/index.ts - VERSIÓN FINAL LIMPIA (27 de Abril 2026)
-// Esta versión mantiene toda tu lógica importante y corrige el 404
+// src/index.ts - Versión completa y segura (27 Abril 2026)
+// Corrige el 404 + mantiene lógica importante para producción
 
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
@@ -10,7 +10,27 @@ import axios from 'axios';
 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
-// ==================== MIDDLEWARE ====================
+// ==================== SETUP ====================
+const prisma = new PrismaClient();
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+
+const app = express();
+
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || ['http://localhost:5173', 'https://nexoswebfrontend.vercel.app'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
+
+const port = Number(process.env.PORT) || 10000;
+
+// ==================== MIDDLEWARE SEGURO ====================
 const authenticate = async (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -24,58 +44,47 @@ const authenticate = async (req: any, res: any, next: any) => {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
 
+  // Seguridad: Verificar que el email esté confirmado
+  if (!user.email_confirmed_at) {
+    return res.status(403).json({ error: 'Por favor confirma tu email antes de usar la app' });
+  }
+
   req.user = user;
 
-  const dbUser = await prisma.user.findUnique({
+  // Buscar o crear usuario en Prisma
+  let dbUser = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { role: true },
+    select: { id: true, email: true, role: true },
   });
 
   if (!dbUser) {
-    return res.status(404).json({ error: 'Usuario no encontrado en DB' });
+    dbUser = await prisma.user.create({
+      data: {
+        id: user.id,
+        email: user.email!,
+        role: 'USER',           // Por defecto es USER
+      },
+    });
+    console.log(`✅ Usuario creado automáticamente en Prisma: ${user.email}`);
   }
 
   req.dbUser = dbUser;
   next();
 };
 
-// ==================== SETUP ====================
-const prisma = new PrismaClient();
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
-);
-
-const app = express();
-
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
-app.use(express.json());
-
-const port = Number(process.env.PORT) || 10000;
-
-// ==================== RUTAS CRÍTICAS (primero - para evitar 404) ====================
+// ==================== RUTAS CRÍTICAS ====================
 
 app.get('/health', (req, res) => res.json({ status: 'OK' }));
 
-// ← Esta es la ruta que falla con 404 al loguearte
+// Usada por el Dashboard al loguearse
 app.get('/users/me', authenticate, async (req: any, res: any) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: { id: true, email: true, role: true },
-    });
-    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json({ user });
-  } catch (error: any) {
-    console.error('Error en /users/me:', error);
-    res.status(500).json({ error: 'Error interno' });
-  }
+  res.json({ 
+    user: { 
+      id: req.user.id, 
+      email: req.user.email, 
+      role: req.dbUser.role 
+    } 
+  });
 });
 
 // Servicios del solicitante
@@ -94,7 +103,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
   }
 });
 
-// Servicios del conductor (la que usa el driver)
+// Servicios del conductor
 app.get('/services/driver/my', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'DRIVER') {
@@ -115,9 +124,9 @@ app.get('/services/driver/my', authenticate, async (req: any, res: any) => {
   }
 });
 
-// ==================== RUTAS IMPORTANTES DEL FLUJO ====================
+// ==================== RUTAS DEL FLUJO PRINCIPAL ====================
 
-// HU-04: Convertirse en conductor / actualizar perfil
+// HU-04: Perfil de conductor
 app.post('/driver/profile', authenticate, async (req: any, res: any) => {
   const { vehicleType } = req.body;
   if (!vehicleType || !['TAXI', 'TRAFIC', 'MOTO'].includes(vehicleType)) {
@@ -150,30 +159,41 @@ app.post('/driver/profile', authenticate, async (req: any, res: any) => {
 // HU-05: En Línea / Fuera de Línea
 app.patch('/driver/availability', authenticate, async (req: any, res: any) => {
   const { isOnline } = req.body;
-  if (typeof isOnline !== 'boolean') return res.status(400).json({ error: 'isOnline debe ser boolean' });
+  if (typeof isOnline !== 'boolean') {
+    return res.status(400).json({ error: 'isOnline debe ser boolean' });
+  }
 
   try {
-    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores' });
+    if (req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo conductores pueden cambiar disponibilidad' });
+    }
 
-    const updated = await prisma.driverProfile.update({
+    const updatedProfile = await prisma.driverProfile.update({
       where: { userId: req.user.id },
       data: { isOnline, updatedAt: new Date() },
     });
 
-    res.json({ message: `Disponibilidad actualizada a ${isOnline ? 'online' : 'offline'}`, profile: updated });
+    res.json({
+      message: `Disponibilidad actualizada a ${isOnline ? 'online' : 'offline'}`,
+      profile: updatedProfile,
+    });
   } catch (error: any) {
     console.error('Error en /driver/availability:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// HU-07: Solicitar servicio
+// HU-07: Solicitar servicio + Matching automático
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
-    if (req.dbUser.role !== 'USER') return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
+    }
 
     const { type, pickupLat, pickupLng } = req.body;
-    if (!type || !['MOTO', 'TAXI', 'TRAFIC'].includes(type)) return res.status(400).json({ error: 'type inválido' });
+    if (!type || !['MOTO', 'TAXI', 'TRAFIC'].includes(type)) {
+      return res.status(400).json({ error: 'type debe ser MOTO, TAXI o TRAFIC' });
+    }
     if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
       return res.status(400).json({ error: 'Coordenadas inválidas' });
     }
@@ -188,7 +208,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`✅ Servicio creado: ${newService.id}`);
+    console.log(`✅ Servicio REQUESTED creado: ${newService.id}`);
 
     // Matching automático
     setTimeout(async () => {
@@ -200,21 +220,23 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
             { headers: { Authorization: `Bearer ${token}` } }
           );
         }
-      } catch (e) { console.error('Matching automático falló:', e); }
+      } catch (e) {
+        console.error('Error en matching automático:', e);
+      }
     }, 1500);
 
     res.json({ message: "Servicio solicitado correctamente", service: newService });
   } catch (error: any) {
-    console.error('Error al solicitar:', error);
-    res.status(500).json({ error: 'Error interno' });
+    console.error('Error al solicitar servicio:', error);
+    res.status(500).json({ error: 'Error interno al crear solicitud' });
   }
 });
 
-// Accept, Reject, Arrive, Finish (mantengo las versiones más estables)
+// Accept, Reject, Arrive, Finish-wait (versiones estables)
 app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
   try {
-    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores' });
+    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores pueden aceptar' });
 
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
     if (!service || service.driverId !== req.user.id || service.status !== 'OFFERED') {
@@ -235,7 +257,7 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
   try {
-    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores' });
+    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores pueden rechazar' });
 
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
     if (!service || service.driverId !== req.user.id || service.status !== 'OFFERED') {
@@ -247,7 +269,7 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       data: { status: 'REJECTED', driverId: null }
     });
 
-    // Buscar siguiente conductor más cercano
+    // Fallback al siguiente conductor más cercano
     const drivers = await prisma.driverProfile.findMany({
       where: { isOnline: true, vehicleType: service.type, userId: { not: req.user.id } },
       include: { user: true },
@@ -285,7 +307,6 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
   }
 });
 
-// HU-12 y HU-13
 app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
   try {
@@ -317,7 +338,10 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
       return res.status(403).json({ error: 'Acción no permitida' });
     }
 
-    const waitMinutes = service.arrivedAt ? Math.round((Date.now() - service.arrivedAt.getTime()) / 60000) : 5;
+    const waitMinutes = service.arrivedAt 
+      ? Math.round((Date.now() - service.arrivedAt.getTime()) / 60000)
+      : 5;
+
     const rates = { MOTO: 5, TAXI: 10, TRAFIC: 20 };
     let amount = Math.max(50, waitMinutes * (rates[service.type as keyof typeof rates] || 8));
 
@@ -332,7 +356,7 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
   }
 });
 
-// ==================== LISTEN ====================
+// ==================== INICIO DEL SERVIDOR ====================
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
   console.log(`→ /users/me`);
