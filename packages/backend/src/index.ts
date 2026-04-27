@@ -230,6 +230,92 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
   }
 });
 
+// HU-05: Activar/desactivar disponibilidad (En Línea)
+app.patch('/driver/availability', authenticate, async (req: any, res: any) => {
+  const { isOnline } = req.body;
+
+  if (typeof isOnline !== 'boolean') {
+    return res.status(400).json({ error: 'isOnline debe ser true o false' });
+  }
+
+  try {
+    if (req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo conductores pueden cambiar disponibilidad' });
+    }
+
+    const updatedProfile = await prisma.driverProfile.update({
+      where: { userId: req.user.id },
+      data: {
+        isOnline,
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(`Driver ${req.user.id} cambió estado a ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+
+    res.json({
+      message: `Disponibilidad actualizada a ${isOnline ? 'En Línea' : 'Fuera de Línea'}`,
+      isOnline: updatedProfile.isOnline,
+    });
+  } catch (error: any) {
+    console.error('Error en /driver/availability:', error);
+    
+    // Si el perfil no existe, lo creamos
+    if (error.code === 'P2025') {
+      const newProfile = await prisma.driverProfile.create({
+        data: {
+          userId: req.user.id,
+          vehicleType: 'MOTO', // valor por defecto
+          isOnline,
+        },
+      });
+      res.json({ 
+        message: `Perfil creado y disponibilidad actualizada a ${isOnline ? 'En Línea' : 'Fuera de Línea'}`,
+        isOnline 
+      });
+    } else {
+      res.status(500).json({ error: 'Error interno' });
+    }
+  }
+});
+
+// HU-06.1: Obtener perfil del conductor (importante para leer isOnline correctamente)
+app.get('/driver/profile', authenticate, async (req: any, res: any) => {
+  try {
+    if (req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo los conductores pueden ver su perfil' });
+    }
+
+    const profile = await prisma.driverProfile.findUnique({
+      where: { userId: req.user.id },
+      select: {
+        id: true,
+        vehicleType: true,
+        isOnline: true,
+        lastLocation: true,
+        updatedAt: true,
+      },
+    });
+
+    // Si no tiene perfil, lo creamos con estado OFFLINE por defecto
+    if (!profile) {
+      const newProfile = await prisma.driverProfile.create({
+        data: {
+          userId: req.user.id,
+          vehicleType: 'MOTO',
+          isOnline: false,        // importante: por defecto OFFLINE
+        },
+      });
+      return res.json(newProfile);
+    }
+
+    res.json(profile);
+  } catch (error: any) {
+    console.error('Error al obtener perfil del conductor:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
