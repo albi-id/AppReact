@@ -352,6 +352,35 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
   }
 });
 
+//hu-06.1: Obtener perfil del conductor (para leer isOnline correctamente)
+app.get('/driver/profile', authenticate, async (req: any, res: any) => {
+  try {
+    if (req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo los conductores pueden ver su perfil' });
+    }
+
+    const profile = await prisma.driverProfile.findUnique({
+      where: { userId: req.user.id },
+      select: {
+        id: true,
+        vehicleType: true,
+        isOnline: true,
+        lastLocation: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!profile) {
+      return res.status(404).json({ error: 'Perfil de conductor no encontrado' });
+    }
+
+    res.json(profile);
+  } catch (error: any) {
+    console.error('Error al obtener perfil del conductor:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // HU-07: Solicitar servicio por tipo de vehículo (solo USER)
 //app.post('/services/request', authenticate, async (req: any, res: any) => {
   //const { vehicleType, lat, lng } = req.body;
@@ -415,49 +444,37 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       return res.status(400).json({ error: 'type debe ser MOTO, TAXI o TRAFIC' });
     }
 
-    if (!pickupLat || !pickupLng) {
-      return res.status(400).json({ error: 'pickupLat y pickupLng son requeridos' });
+    if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
+      return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números' });
     }
 
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
         type: type as any,
-        pickupLat: parseFloat(pickupLat),
-        pickupLng: parseFloat(pickupLng),
+        pickupLat,
+        pickupLng,
         status: 'REQUESTED',
       },
     });
 
-    console.log(`✅ Servicio creado: ${newService.id} - Tipo: ${type}`);
+    console.log(`✅ Servicio REQUESTED creado: ${newService.id} - Tipo: ${type}`);
 
-    // Llamada automática al matching (más robusta)
+    // Matching automático
     setTimeout(async () => {
       try {
         const token = req.headers.authorization?.split(' ')[1];
-
-        if (!token) {
-          console.error('❌ No se encontró token para matching automático');
-          return;
-        }
-
-        console.log(`🔄 Ejecutando matching automático para servicio ${newService.id}`);
+        if (!token) return;
 
         await axios.post(`https://app-nexos-backend.onrender.com/services/match`, 
           { serviceId: newService.id },
-          { 
-            headers: { 
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            } 
-          }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
-
-        console.log(`✅ Matching automático completado para servicio ${newService.id}`);
+        console.log(`✅ Matching automático ejecutado para ${newService.id}`);
       } catch (e: any) {
-        console.error('❌ Error en matching automático:', e.response?.data || e.message);
+        console.error('Error en matching automático:', e.message);
       }
-    }, 2000); // 2 segundos de delay
+    }, 1500);
 
     res.json({
       message: "Servicio solicitado correctamente",
@@ -554,220 +571,8 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
     res.status(500).json({ error: 'Error interno' });
   }
 });
-
-// HU-09: Rechazo del conductor y fallback al siguiente
-app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
-  const { serviceId } = req.params;
-
-  try {
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo conductores pueden rechazar servicios' });
-    }
-
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      include: { driver: true },
-    });
-
-    if (!service) {
-      return res.status(404).json({ error: 'Servicio no encontrado' });
-    }
-
-    if (service.status !== 'OFFERED' || service.driverId !== req.user.id) {
-      return res.status(403).json({ error: 'No puedes rechazar este servicio' });
-    }
-
-    // Marcar como rechazado por este conductor
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: {
-        status: 'REJECTED',
-        driverId: null, // quita asignación
-      },
-    });
-
-    // Buscar el siguiente conductor más cercano (reutilizamos lógica de match)
-    const drivers = await prisma.driverProfile.findMany({
-      where: {
-        isOnline: true,
-        vehicleType: service.type,
-        userId: { not: req.user.id }, // excluye el que rechazó
-      },
-      include: { user: true },
-    });
-
-    if (drivers.length === 0) {
-      // No hay más candidatos → service rechazado definitivamente
-      return res.json({
-        message: 'Servicio rechazado. No hay más conductores disponibles.',
-        status: 'REJECTED',
-      });
-    }
-
-    // Ordenar por distancia (reutilizamos Haversine)
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-      const R = 6371;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    };
-
-    const candidates = drivers
-      .map(d => {
-        const loc = d.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { driver: d, distance: Infinity };
-        const distance = getDistance(
-          service.pickupLat!,
-          service.pickupLng!,
-          loc.lat,
-          loc.lng
-        );
-        return { driver: d, distance };
-      })
-      .filter(c => c.distance !== Infinity)
-      .sort((a, b) => a.distance - b.distance);
-
-    if (candidates.length === 0) {
-      return res.json({
-        message: 'Servicio rechazado. No hay conductores con ubicación válida.',
-        status: 'REJECTED',
-      });
-    }
-
-    // Asignar al siguiente
-    const nextDriver = candidates[0].driver;
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: {
-        driverId: nextDriver.userId,
-        status: 'OFFERED',
-      },
-    });
-
-    res.json({
-      message: 'Servicio rechazado. Asignado al siguiente conductor más cercano.',
-      nextDriverId: nextDriver.userId,
-      distanceKm: candidates[0].distance.toFixed(2),
-      status: 'OFFERED',
-    });
-  } catch (error: any) {
-    console.error('Error en reject/fallback:', error);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
-
-// HU-09: Rechazo del conductor y fallback automático al siguiente
-app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
-  const { serviceId } = req.params;
-
-  try {
-    // Solo conductores pueden rechazar
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo conductores pueden rechazar servicios' });
-    }
-
-    // Buscar el servicio y verificar que esté asignado a este conductor
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      include: { driver: true },
-    });
-
-    if (!service) {
-      return res.status(404).json({ error: 'Servicio no encontrado' });
-    }
-
-    if (service.driverId !== req.user.id || service.status !== 'OFFERED') {
-      return res.status(403).json({ error: 'Este servicio no está asignado a ti o no está en estado OFFERED' });
-    }
-
-    // Marcar como rechazado por este conductor
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: {
-        status: 'REJECTED',
-        driverId: null, // quita la asignación actual
-      },
-    });
-
-    // Buscar candidatos restantes (excluyendo al que rechazó)
-    const drivers = await prisma.driverProfile.findMany({
-      where: {
-        isOnline: true,
-        vehicleType: service.type,
-        userId: { not: req.user.id }, // excluye al que rechazó
-      },
-      include: { user: true },
-    });
-
-    if (drivers.length === 0) {
-      // No hay más candidatos → servicio rechazado definitivamente
-      return res.json({
-        message: 'Servicio rechazado. No hay más conductores disponibles.',
-        status: 'REJECTED',
-      });
-    }
-
-    // Ordenar por distancia (reutilizamos Haversine simple por ahora)
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-      const R = 6371;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    };
-
-    const candidates = drivers
-      .map(driver => {
-        const loc = driver.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { driver, distance: Infinity };
-        const distance = getDistance(
-          service.pickupLat!,
-          service.pickupLng!,
-          loc.lat,
-          loc.lng
-        );
-        return { driver, distance };
-      })
-      .filter(c => c.distance !== Infinity)
-      .sort((a, b) => a.distance - b.distance);
-
-    if (candidates.length === 0) {
-      return res.json({
-        message: 'Servicio rechazado. No hay conductores con ubicación válida.',
-        status: 'REJECTED',
-      });
-    }
-
-    // Asignar al siguiente más cercano
-    const nextDriver = candidates[0].driver;
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: {
-        driverId: nextDriver.userId,
-        status: 'OFFERED',
-      },
-    });
-
-    res.json({
-      message: 'Servicio rechazado. Asignado automáticamente al siguiente conductor.',
-      nextDriverId: nextDriver.userId,
-      distanceKm: candidates[0].distance.toFixed(2),
-      status: 'OFFERED',
-    });
-  } catch (error: any) {
-    console.error('Error en rechazo/fallback:', error);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
+ 
+ 
 
 // HU-10: Obtener ETA y notificación de asignación (solo solicitante del service)
 app.get('/services/:serviceId/eta', authenticate, async (req: any, res: any) => {
@@ -1414,7 +1219,7 @@ app.get('/services/driver/my', authenticate, async (req: any, res: any) => {
   }
 });
 
-// Aceptar oferta (solo conductor)
+ // HU- Accept: Conductor acepta la oferta
 app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
@@ -1428,22 +1233,30 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
     });
 
     if (!service || service.driverId !== req.user.id || service.status !== 'OFFERED') {
-      return res.status(403).json({ error: 'No puedes aceptar este servicio' });
+      return res.status(403).json({ error: 'No puedes aceptar este servicio o ya no está disponible' });
     }
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
-      data: { status: 'ACCEPTED' },
+      data: { 
+        status: 'ACCEPTED',
+        acceptedAt: new Date()
+      },
     });
 
-    res.json({ message: 'Oferta aceptada', service: updated });
+    console.log(`✅ Conductor ${req.user.id} aceptó servicio ${serviceId}`);
+
+    res.json({ 
+      message: 'Oferta aceptada correctamente',
+      service: updated 
+    });
   } catch (error: any) {
-    console.error('Error accept:', error);
+    console.error('Error al aceptar servicio:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// Rechazar oferta (ya lo tenés, pero por si acaso)
+// HU-09: Rechazar oferta + fallback automático al siguiente
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
@@ -1460,43 +1273,59 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       return res.status(403).json({ error: 'No puedes rechazar este servicio' });
     }
 
-    const updated = await prisma.service.update({
+    await prisma.service.update({
       where: { id: serviceId },
-      data: { status: 'REJECTED', driverId: null },
+      data: { status: 'REJECTED', driverId: null }
     });
 
-    res.json({ message: 'Oferta rechazada', service: updated });
-  } catch (error: any) {
-    console.error('Error reject:', error);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
+    // Buscar siguiente conductor
+    const drivers = await prisma.driverProfile.findMany({
+      where: {
+        isOnline: true,
+        vehicleType: service.type,
+        userId: { not: req.user.id }
+      },
+      include: { user: true },
+    });
 
-// Marcar llegada (ya lo tenés, pero asegúrate)
-app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any) => {
-  const { serviceId } = req.params;
-
-  try {
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo conductores pueden marcar llegada' });
+    if (drivers.length === 0) {
+      return res.json({ 
+        message: 'Oferta rechazada. No hay más conductores disponibles.', 
+        status: 'REJECTED' 
+      });
     }
 
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-    });
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+      const R = 6371;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
 
-    if (!service || service.driverId !== req.user.id || service.status !== 'ACCEPTED') {
-      return res.status(403).json({ error: 'No puedes marcar llegada en este servicio' });
-    }
+    const candidates = drivers
+      .map(d => {
+        const loc = d.lastLocation as any;
+        const distance = loc ? getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng) : Infinity;
+        return { driver: d, distance };
+      })
+      .sort((a, b) => a.distance - b.distance);
+
+    const next = candidates[0].driver;
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
-      data: { status: 'ARRIVED', arrivedAt: new Date() },
+      data: { driverId: next.userId, status: 'OFFERED' }
     });
 
-    res.json({ message: 'Llegada marcada', service: updated });
+    res.json({
+      message: 'Oferta rechazada. Asignada al siguiente conductor.',
+      nextDriverId: next.userId,
+      status: 'OFFERED'
+    });
+
   } catch (error: any) {
-    console.error('Error arrive:', error);
+    console.error('Error al rechazar:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
