@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 import 'dotenv/config';
 import cors from 'cors';
+import axios from 'axios';
 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -107,6 +108,63 @@ app.get('/services/driver/my', authenticate, async (req: any, res: any) => {
   });
 
   res.json({ message: 'Mis servicios asignados', services });
+});
+
+
+// HU-07: Solicitar servicio (USER) + Matching automático
+app.post('/services/request', authenticate, async (req: any, res: any) => {
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
+    }
+
+    const { type, pickupLat, pickupLng } = req.body;
+
+    if (!type || !['MOTO', 'TAXI', 'TRAFIC'].includes(type)) {
+      return res.status(400).json({ error: 'type debe ser MOTO, TAXI o TRAFIC' });
+    }
+
+    if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
+      return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números válidos' });
+    }
+
+    const newService = await prisma.service.create({
+      data: {
+        requesterId: req.user.id,
+        type: type as any,
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        status: 'REQUESTED',
+      },
+    });
+
+    console.log(`✅ Servicio REQUESTED creado: ${newService.id} - Tipo: ${type}`);
+
+    // Matching automático después de 1.5 segundos
+    setTimeout(async () => {
+      try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (token) {
+          await axios.post(`https://app-nexos-backend.onrender.com/services/match`, 
+            { serviceId: newService.id },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          console.log(`🔄 Matching automático ejecutado para servicio ${newService.id}`);
+        }
+      } catch (e: any) {
+        console.error('❌ Error en matching automático:', e.message);
+      }
+    }, 1500);
+
+    res.json({
+      message: "Servicio solicitado correctamente",
+      service: newService,
+    });
+
+  } catch (error: any) {
+    console.error('Error al solicitar servicio:', error);
+    res.status(500).json({ error: 'Error interno al crear solicitud' });
+  }
 });
 
 // ==================== OTRAS RUTAS IMPORTANTES ====================
@@ -313,6 +371,135 @@ app.get('/driver/profile', authenticate, async (req: any, res: any) => {
   } catch (error: any) {
     console.error('Error al obtener perfil del conductor:', error);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// HU-07: Solicitar servicio (USER) + Matching automático
+app.post('/services/request', authenticate, async (req: any, res: any) => {
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
+    }
+
+    const { type, pickupLat, pickupLng } = req.body;
+
+    if (!type || !['MOTO', 'TAXI', 'TRAFIC'].includes(type)) {
+      return res.status(400).json({ error: 'type debe ser MOTO, TAXI o TRAFIC' });
+    }
+
+    if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
+      return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números válidos' });
+    }
+
+    const newService = await prisma.service.create({
+      data: {
+        requesterId: req.user.id,
+        type: type as any,
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        status: 'REQUESTED',
+      },
+    });
+
+    console.log(`✅ Servicio REQUESTED creado: ${newService.id} - Tipo: ${type}`);
+
+    // Matching automático
+    setTimeout(async () => {
+      try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (token) {
+          await axios.post(`https://app-nexos-backend.onrender.com/services/match`, 
+            { serviceId: newService.id },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          console.log(`🔄 Matching automático ejecutado para servicio ${newService.id}`);
+        }
+      } catch (e: any) {
+        console.error('❌ Error en matching automático:', e.message);
+      }
+    }, 1500);
+
+    res.json({
+      message: "Servicio solicitado correctamente",
+      service: newService,
+    });
+
+  } catch (error: any) {
+    console.error('Error al solicitar servicio:', error);
+    res.status(500).json({ error: 'Error interno al crear solicitud' });
+  }
+});
+
+// HU-08: Matching automático - Asignar al conductor más cercano
+app.post('/services/match', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.body;
+
+  if (!serviceId) {
+    return res.status(400).json({ error: 'serviceId requerido' });
+  }
+
+  try {
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      include: { requester: true },
+    });
+
+    if (!service || service.status !== 'REQUESTED') {
+      return res.status(404).json({ error: 'Servicio no encontrado o ya procesado' });
+    }
+
+    const drivers = await prisma.driverProfile.findMany({
+      where: {
+        isOnline: true,
+        vehicleType: service.type,
+      },
+      include: { user: true },
+    });
+
+    if (drivers.length === 0) {
+      return res.json({ message: 'No hay conductores disponibles en este momento', candidates: [] });
+    }
+
+    // Función para calcular distancia (Haversine)
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    const candidates = drivers
+      .map(driver => {
+        const loc = driver.lastLocation as { lat: number; lng: number } | null;
+        if (!loc) return { driver, distanceKm: Infinity };
+        const distanceKm = getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng);
+        return { driver, distanceKm };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const closest = candidates[0];
+
+    const updatedService = await prisma.service.update({
+      where: { id: serviceId },
+      data: {
+        driverId: closest.driver.userId,
+        status: 'OFFERED',
+      },
+    });
+
+    res.json({
+      message: 'Oferta enviada al conductor más cercano',
+      driverId: closest.driver.userId,
+      distanceKm: closest.distanceKm.toFixed(2),
+      service: updatedService,
+    });
+  } catch (error: any) {
+    console.error('Error en matching:', error);
+    res.status(500).json({ error: 'Error interno en matching' });
   }
 });
 
