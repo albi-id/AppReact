@@ -221,27 +221,104 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
   }
 });
 
+// HU-09: Rechazar oferta + fallback automático al siguiente conductor más cercano
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-  try {
-    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores' });
 
-    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+  try {
+    if (req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo conductores pueden rechazar' });
+    }
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+    });
+
     if (!service || service.driverId !== req.user.id || service.status !== 'OFFERED') {
       return res.status(403).json({ error: 'No puedes rechazar este servicio' });
     }
 
+    // Marcar como rechazado y liberar conductor
     await prisma.service.update({
       where: { id: serviceId },
-      data: { status: 'REJECTED', driverId: null }
+      data: { 
+        status: 'REJECTED', 
+        driverId: null 
+      },
     });
 
-    // Simple fallback (puedes mejorarlo después)
-    res.json({ message: 'Oferta rechazada. Buscando siguiente conductor...', status: 'REJECTED' });
+    console.log(`🚫 Conductor ${req.user.id} rechazó servicio ${serviceId}`);
+
+    // Buscar conductores disponibles del mismo tipo
+    const drivers = await prisma.driverProfile.findMany({
+      where: {
+        isOnline: true,
+        vehicleType: service.type,
+        userId: { not: req.user.id }   // Excluir al que rechazó
+      },
+      include: { user: true },
+    });
+
+    if (drivers.length === 0) {
+      return res.json({ 
+        message: 'Oferta rechazada. No hay más conductores disponibles en este momento.', 
+        status: 'REJECTED' 
+      });
+    }
+
+    // Función Haversine para calcular distancia
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a = Math.sin(dLat / 2) ** 2 + 
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    // Ordenar por cercanía
+    const candidates = drivers
+      .map(driver => {
+        const loc = driver.lastLocation as { lat: number; lng: number } | null;
+        if (!loc) return { driver, distanceKm: Infinity };
+        const distanceKm = getDistance(
+          service.pickupLat!, 
+          service.pickupLng!, 
+          loc.lat, 
+          loc.lng
+        );
+        return { driver, distanceKm };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const nextDriver = candidates[0].driver;
+
+    // Asignar al siguiente conductor más cercano
+    const updatedService = await prisma.service.update({
+      where: { id: serviceId },
+      data: {
+        driverId: nextDriver.userId,
+        status: 'OFFERED',
+      },
+    });
+
+    console.log(`🔄 Servicio ${serviceId} reasignado automáticamente al conductor ${nextDriver.userId}`);
+
+    res.json({
+      message: 'Oferta rechazada. Asignada al siguiente conductor más cercano.',
+      nextDriverId: nextDriver.userId,
+      distanceKm: candidates[0].distanceKm.toFixed(2),
+      status: 'OFFERED'
+    });
+
   } catch (error: any) {
-    res.status(500).json({ error: 'Error interno' });
+    console.error('Error al rechazar servicio:', error);
+    res.status(500).json({ error: 'Error interno al rechazar' });
   }
 });
+
 
 app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
@@ -370,6 +447,39 @@ app.get('/driver/profile', authenticate, async (req: any, res: any) => {
     res.json(profile);
   } catch (error: any) {
     console.error('Error al obtener perfil del conductor:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// HU-06.2: Actualizar ubicación en tiempo real del conductor
+app.patch('/driver/location', authenticate, async (req: any, res: any) => {
+  const { lat, lng } = req.body;
+
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ error: 'lat y lng deben ser números válidos' });
+  }
+
+  try {
+    if (req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo conductores pueden actualizar ubicación' });
+    }
+
+    const updated = await prisma.driverProfile.update({
+      where: { userId: req.user.id },
+      data: {
+        lastLocation: { lat, lng },
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(`📍 Ubicación actualizada - Conductor ${req.user.id}: (${lat}, ${lng})`);
+
+    res.json({
+      message: 'Ubicación actualizada correctamente',
+      location: { lat, lng }
+    });
+  } catch (error: any) {
+    console.error('Error actualizando ubicación:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
