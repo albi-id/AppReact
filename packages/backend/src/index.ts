@@ -341,27 +341,66 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any
   }
 });
 
+// HU-13: Finalizar servicio + cálculo real de importe
 app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-  try {
-    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores' });
 
-    const service = await prisma.service.findUnique({ where: { id: serviceId } });
-    if (!service || service.driverId !== req.user.id || service.status !== 'ARRIVED') {
-      return res.status(403).json({ error: 'Acción no permitida' });
+  try {
+    if (req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo conductores pueden finalizar servicios' });
     }
 
-    const waitMinutes = 5; // placeholder
-    const amount = 50;
-
-    const updated = await prisma.service.update({
+    const service = await prisma.service.findUnique({
       where: { id: serviceId },
-      data: { status: 'COMPLETED', waitEndAt: new Date(), amount }
     });
 
-    res.json({ message: 'Servicio finalizado', service: updated, importe: amount });
+    if (!service || service.driverId !== req.user.id || service.status !== 'ARRIVED') {
+      return res.status(403).json({ error: 'No puedes finalizar este servicio' });
+    }
+
+    if (!service.arrivedAt) {
+      return res.status(400).json({ error: 'No hay hora de llegada registrada' });
+    }
+
+    // Calcular tiempo de espera real en minutos
+    const waitMinutes = Math.max(1, Math.round(
+      (new Date().getTime() - service.arrivedAt.getTime()) / 60000
+    ));
+
+    // Tarifas por tipo de vehículo (ARS por minuto)
+    const rates: Record<string, number> = {
+      MOTO: 8,
+      TAXI: 12,
+      TRAFIC: 25,
+    };
+
+    const ratePerMinute = rates[service.type] || 10;
+
+    // Cálculo: Tarifa base + tiempo de espera
+    let amount = Math.round(50 + (waitMinutes * ratePerMinute)); // Mínimo 50 ARS
+
+    // Actualizar servicio
+    const updated = await prisma.service.update({
+      where: { id: serviceId },
+      data: {
+        status: 'COMPLETED',
+        waitEndAt: new Date(),
+        amount: amount,
+      },
+    });
+
+    console.log(`💰 Servicio ${serviceId} finalizado - Espera: ${waitMinutes} min - Importe: ${amount} ARS`);
+
+    res.json({
+      message: 'Servicio finalizado correctamente',
+      service: updated,
+      importe: amount,
+      waitMinutes: waitMinutes
+    });
+
   } catch (error: any) {
-    res.status(500).json({ error: 'Error interno' });
+    console.error('Error al finalizar servicio:', error);
+    res.status(500).json({ error: 'Error interno al finalizar servicio' });
   }
 });
 
