@@ -652,6 +652,107 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
   }
 });
 
+
+//nueva funcionalidad listar mejores profesionales
+// =============================================
+// PROFESIONALES DESTACADOS (Suscripción Premium)
+// =============================================
+
+// HU-20: Listado de profesionales destacados (con búsqueda)
+app.get('/professionals', async (req: any, res: any) => {
+  const { search, profession } = req.query;
+
+  try {
+    const where: any = { isActive: true };
+
+    if (profession) {
+      where.profession = { contains: profession, mode: 'insensitive' };
+    }
+
+    if (search) {
+      where.OR = [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { profession: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const professionals = await prisma.professional.findMany({
+      where,
+      include: {
+        user: {
+          select: { id: true, email: true }
+        }
+      },
+      orderBy: [
+        { rating: 'desc' },
+        { reviewCount: 'desc' }
+      ],
+      take: 50,
+    });
+
+    res.json({
+      message: 'Profesionales destacados',
+      professionals
+    });
+  } catch (error: any) {
+    console.error('Error al obtener profesionales:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// HU-21: Obtener detalle de un profesional
+app.get('/professionals/:id', async (req: any, res: any) => {
+  const { id } = req.params;
+
+  try {
+    const professional = await prisma.professional.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: { id: true, email: true }
+        }
+      }
+    });
+
+    if (!professional) {
+      return res.status(404).json({ error: 'Profesional no encontrado' });
+    }
+
+    res.json(professional);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// HU-22: Registrar un profesional (para futuro panel de suscripción)
+app.post('/professionals', authenticate, async (req: any, res: any) => {
+  const { fullName, profession, description } = req.body;
+
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Debes ser usuario para registrarte como profesional' });
+    }
+
+    const professional = await prisma.professional.create({
+      data: {
+        userId: req.user.id,
+        fullName,
+        profession,
+        description: description || '',
+        isActive: true,           // Activo por defecto (luego se gestionará con suscripción)
+      }
+    });
+
+    res.status(201).json({
+      message: 'Profesional registrado correctamente',
+      professional
+    });
+  } catch (error: any) {
+    console.error('Error al registrar profesional:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
