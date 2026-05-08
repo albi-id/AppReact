@@ -659,7 +659,7 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
 // =============================================
 
 // HU-20: Listado de profesionales destacados (con búsqueda)
-/*
+
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession } = req.query;
 
@@ -754,7 +754,6 @@ app.post('/professionals', authenticate, async (req: any, res: any) => {
   }
 });
 
-*/
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
