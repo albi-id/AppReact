@@ -32,6 +32,7 @@ model User {
   driverProfile DriverProfile?  // Relación 1:1 con perfil conductor (opcional)
   servicesAsRequester Service[] @relation("Requester")
   servicesAsDriver    Service[] @relation("Driver")
+  professional Professional?
 }
 
 // Perfil específico para conductores
@@ -97,4 +98,32 @@ enum ServiceStatus {
 enum PaymentMethod {
   CASH
   WALLET
+}
+
+// =============================================
+// PROFESIONALES DESTACADOS (Suscripción Premium)
+// =============================================
+
+model Professional {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fullName        String
+  profession      String   // Ej: Electricista, Plomero, Jardinero, Pintor, etc.
+  description     String?  // Breve descripción del servicio
+  rating          Float    @default(0.0)
+  reviewCount     Int      @default(0)
+  isActive        Boolean  @default(true)   // Está pagando la suscripción?
+  subscriptionEnd DateTime?                    // Fecha de vencimiento de suscripción
+
+  // Campos para futuro
+  phone           String?
+  address         String?
+  photoUrl        String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("professionals")
 }
