@@ -110,7 +110,7 @@ app.get('/services/driver/my', authenticate, async (req: any, res: any) => {
   res.json({ message: 'Mis servicios asignados', services });
 });
 
-
+/*
 // HU-07: Solicitar servicio (USER) + Matching automático
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
@@ -166,6 +166,8 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     res.status(500).json({ error: 'Error interno al crear solicitud' });
   }
 });
+*/
+
 
 // ==================== OTRAS RUTAS IMPORTANTES ====================
 
@@ -524,6 +526,7 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
 });
 
 // HU-07: Solicitar servicio (USER) + Matching automático
+// HU-07: Solicitar servicio (USER) - Solo un servicio activo permitido
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'USER') {
@@ -540,6 +543,22 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números válidos' });
     }
 
+    // ←←← NUEVA VALIDACIÓN: Solo un servicio activo permitido
+    const activeService = await prisma.service.findFirst({
+      where: {
+        requesterId: req.user.id,
+        status: {
+          notIn: ['COMPLETED', 'CANCELED', 'REJECTED']
+        }
+      }
+    });
+
+    if (activeService) {
+      return res.status(400).json({ 
+        error: 'Ya tienes un servicio en curso. Debes esperar a que finalice o se cancele antes de solicitar otro.' 
+      });
+    }
+
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
@@ -550,7 +569,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`✅ Servicio REQUESTED creado: ${newService.id} - Tipo: ${type}`);
+    console.log(`✅ Servicio REQUESTED creado: ${newService.id}`);
 
     // Matching automático
     setTimeout(async () => {
@@ -561,10 +580,9 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
             { serviceId: newService.id },
             { headers: { Authorization: `Bearer ${token}` } }
           );
-          console.log(`🔄 Matching automático ejecutado para servicio ${newService.id}`);
         }
-      } catch (e: any) {
-        console.error('❌ Error en matching automático:', e.message);
+      } catch (e) {
+        console.error('Error en matching automático:', e);
       }
     }, 1500);
 
