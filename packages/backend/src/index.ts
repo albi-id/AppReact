@@ -343,7 +343,8 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any
   }
 });
 
-// HU-13: Finalizar servicio + cálculo real de importe
+
+// HU-13: Finalizar servicio + Calificación + Actualización de estadísticas del conductor
 app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
@@ -354,34 +355,21 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
+      include: { driver: true }
     });
 
     if (!service || service.driverId !== req.user.id || service.status !== 'ARRIVED') {
       return res.status(403).json({ error: 'No puedes finalizar este servicio' });
     }
 
-    if (!service.arrivedAt) {
-      return res.status(400).json({ error: 'No hay hora de llegada registrada' });
-    }
-
-    // Calcular tiempo de espera real en minutos
     const waitMinutes = Math.max(1, Math.round(
-      (new Date().getTime() - service.arrivedAt.getTime()) / 60000
+      (new Date().getTime() - service.arrivedAt!.getTime()) / 60000
     ));
 
-    // Tarifas por tipo de vehículo (ARS por minuto)
-    const rates: Record<string, number> = {
-      MOTO: 8,
-      TAXI: 12,
-      TRAFIC: 25,
-    };
-
+    const rates: Record<string, number> = { MOTO: 8, TAXI: 12, TRAFIC: 25 };
     const ratePerMinute = rates[service.type] || 10;
+    const amount = Math.round(50 + (waitMinutes * ratePerMinute));
 
-    // Cálculo: Tarifa base + tiempo de espera
-    let amount = Math.round(50 + (waitMinutes * ratePerMinute)); // Mínimo 50 ARS
-
-    // Actualizar servicio
     const updated = await prisma.service.update({
       where: { id: serviceId },
       data: {
@@ -391,7 +379,7 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
       },
     });
 
-    console.log(`💰 Servicio ${serviceId} finalizado - Espera: ${waitMinutes} min - Importe: ${amount} ARS`);
+    console.log(`💰 Servicio ${serviceId} finalizado - Importe: $${amount}`);
 
     res.json({
       message: 'Servicio finalizado correctamente',
@@ -403,6 +391,67 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
   } catch (error: any) {
     console.error('Error al finalizar servicio:', error);
     res.status(500).json({ error: 'Error interno al finalizar servicio' });
+  }
+});
+
+
+// HU-14: Calificar servicio (Usuario)
+// HU-14: Calificar servicio (Usuario)
+app.post('/services/:serviceId/rate', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+  const { rating, review } = req.body;
+
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Solo usuarios pueden calificar' });
+    }
+
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'La calificación debe estar entre 1 y 5' });
+    }
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId }
+    });
+
+    if (!service || service.requesterId !== req.user.id || service.status !== 'COMPLETED') {
+      return res.status(403).json({ error: 'No puedes calificar este servicio' });
+    }
+
+    const updatedService = await prisma.service.update({
+      where: { id: serviceId },
+      data: {
+        rating: rating,
+        review: review || null,
+        paidAt: new Date()
+      }
+    });
+
+    // Calcular promedio del conductor (futuro)
+    if (service.driverId) {
+      const ratings = await prisma.service.findMany({
+        where: { 
+          driverId: service.driverId,
+          rating: { not: null }
+        },
+        select: { rating: true }
+      });
+
+      const avgRating = ratings.length > 0 
+        ? ratings.reduce((sum, r) => sum + (r.rating || 0), 0) / ratings.length 
+        : 0;
+
+      console.log(`⭐ Conductor ${service.driverId} recibió calificación ${rating} | Promedio: ${avgRating.toFixed(1)}`);
+    }
+
+    res.json({
+      message: '¡Gracias por tu calificación!',
+      service: updatedService
+    });
+
+  } catch (error: any) {
+    console.error('Error al calificar:', error);
+    res.status(500).json({ error: 'Error interno al registrar calificación' });
   }
 });
 
@@ -525,8 +574,8 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
   }
 });
 
-// HU-07: Solicitar servicio (USER) + Matching automático
-// HU-07: Solicitar servicio (USER) - Solo un servicio activo permitido
+
+// HU-07: Solicitar servicio (USER) - Solo un servicio activo permitido+ Matching automático
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'USER') {

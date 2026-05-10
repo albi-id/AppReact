@@ -22,18 +22,25 @@ enum VehicleType {
 
 // Modelo principal de usuario (solicitante, conductor o admin)
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String   // Hasheada (usaremos bcrypt en código)
-  role      Role     @default(USER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  role          Role     @default(USER)
+  firstName     String?
+  lastName      String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  driverProfile DriverProfile?  // Relación 1:1 con perfil conductor (opcional)
-  servicesAsRequester Service[] @relation("Requester")
-  servicesAsDriver    Service[] @relation("Driver")
-  professional Professional?
+  driverProfile DriverProfile?
+  services      Service[] @relation("ServiceRequester")
+  assignedServices Service[] @relation("ServiceDriver")
+  professional  Professional?
+
+  @@map("users")
 }
+
+
 
 // Perfil específico para conductores
 model DriverProfile {
@@ -47,31 +54,30 @@ model DriverProfile {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Modelo de servicio/viaje (el core del negocio)
 model Service {
-  id            String        @id @default(uuid())
+  id            String   @id @default(cuid())
   requesterId   String
   driverId      String?
+  
   type          VehicleType
   pickupLat     Float?
   pickupLng     Float?
+  
   status        ServiceStatus @default(REQUESTED)
-  requestedAt   DateTime      @default(now())
+  amount        Float?
+  rating        Int?          // 1 a 5
+  review        String?
+
+  requestedAt   DateTime @default(now())
   acceptedAt    DateTime?
   arrivedAt     DateTime?
-  waitStartAt   DateTime?
   waitEndAt     DateTime?
-  amount        Float?        // Calculado al final (ARS)
-  paymentMethod PaymentMethod?
-  paidAt        DateTime?     // ← Nuevo: fecha de pago
-  notes         String?
+  paidAt        DateTime?
 
-  requester     User          @relation("Requester", fields: [requesterId], references: [id])
-  driver        User?         @relation("Driver", fields: [driverId], references: [id])
+  requester     User     @relation("ServiceRequester", fields: [requesterId], references: [id])
+  driver        User?    @relation("ServiceDriver", fields: [driverId], references: [id])
 
-  @@index([status])
-  @@index([requesterId])
-  @@index([driverId])
+  @@map("services")
 }
 
 model Tariff {
