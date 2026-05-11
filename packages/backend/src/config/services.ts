@@ -26,6 +26,14 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     pricePerMinute: 25,
     basePrice: 150,
   },
+  
+  {
+    key: 'AMA_DE_CASA',
+     label: 'Ama de Casa',
+    pricePerMinute: 15,
+    basePrice: 100,
+   },
+
   // Agrega aquí nuevos servicios fácilmente:
   // {
   //   key: 'AMA_DE_CASA',
