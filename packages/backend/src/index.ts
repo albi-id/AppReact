@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import 'dotenv/config';
 import cors from 'cors';
 import axios from 'axios';
+import { SERVICE_TYPES, getServiceConfig } from './config/services';  
 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -14,6 +15,7 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_ANON_KEY!
 );
+const validTypes = ['MOTO', 'TAXI', 'TRAFIC']; // Puedes sacarlo de config después
 
 const app = express();
 
@@ -174,10 +176,16 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // HU-04: Perfil conductor
 app.post('/driver/profile', authenticate, async (req: any, res: any) => {
   const { vehicleType } = req.body;
-  if (!vehicleType || !['TAXI', 'TRAFIC', 'MOTO'].includes(vehicleType)) {
-    return res.status(400).json({ error: 'vehicleType debe ser TAXI, TRAFIC o MOTO' });
-  }
 
+  // Obtenemos los tipos válidos desde la configuración
+  const validTypes = SERVICE_TYPES.map(s => s.key); // ['MOTO', 'TAXI', 'TRAFIC', ...]
+
+  if (!vehicleType || !validTypes.includes(vehicleType)) {
+    return res.status(400).json({ 
+      error: `vehicleType debe ser uno de: ${validTypes.join(', ')}` 
+    });
+  }
+  
   try {
     let userRole = req.dbUser.role;
     if (userRole === 'USER') {
@@ -584,9 +592,11 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     const { type, pickupLat, pickupLng } = req.body;
 
-    if (!type || !['MOTO', 'TAXI', 'TRAFIC'].includes(type)) {
-      return res.status(400).json({ error: 'type debe ser MOTO, TAXI o TRAFIC' });
-    }
+   if (!type || !validTypes.includes(type)) {
+  return res.status(400).json({ 
+    error: `type debe ser uno de: ${validTypes.join(', ')}` 
+  });
+  }
 
     if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
       return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números válidos' });
