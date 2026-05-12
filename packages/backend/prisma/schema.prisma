@@ -111,25 +111,27 @@ enum PaymentMethod {
 // =============================================
 
 model Professional {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id])
 
-  fullName        String
-  profession      String   // Ej: Electricista, Plomero, Jardinero, Pintor, etc.
-  description     String?  // Breve descripción del servicio
-  rating          Float    @default(0.0)
-  reviewCount     Int      @default(0)
-  isActive        Boolean  @default(true)   // Está pagando la suscripción?
-  subscriptionEnd DateTime?                    // Fecha de vencimiento de suscripción
+  fullName              String
+  profession            String
+  description           String?
+  rating                Float    @default(0.0)
+  reviewCount           Int      @default(0)
+  isActive              Boolean  @default(false)     // Debe ser aprobado por admin
+  subscriptionEnd       DateTime?
 
-  // Campos para futuro
-  phone           String?
-  address         String?
-  photoUrl        String?
+  // Campos nuevos para el formulario
+  phone                 String?
+  address               String?
+  dniFrontUrl           String?   // Foto DNI Frente
+  dniBackUrl            String?   // Foto DNI Dorso
+  certificateUrl        String?   // Certificado de buena conducta
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@map("professionals")
 }
