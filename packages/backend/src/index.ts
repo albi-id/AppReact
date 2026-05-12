@@ -735,8 +735,7 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
 
-// HU-20: Listado de profesionales destacados (con búsqueda)
-
+// HU-20: Listado de Profesionales Destacados (incluye conductores bien calificados)
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession } = req.query;
 
@@ -756,22 +755,35 @@ app.get('/professionals', async (req: any, res: any) => {
 
     const professionals = await prisma.professional.findMany({
       where,
-      include: {
-        user: {
-          select: { id: true, email: true }
-        }
-      },
+      include: { user: true },
       orderBy: [
         { rating: 'desc' },
         { reviewCount: 'desc' }
       ],
-      take: 50,
+      take: 30,
+    });
+
+    // Conductores destacados automáticamente desde los servicios
+    const topDrivers = await prisma.service.groupBy({
+      by: ['driverId'],
+      where: {
+        rating: { not: null },
+        driverId: { not: null }
+      },
+      _avg: { rating: true },
+      _count: { id: true },           // ← Corrección aquí
+      having: {
+        rating: { _avg: { gte: 4.0 } },
+        id: { _count: { gte: 3 } }     // ← Corrección aquí
+      },
     });
 
     res.json({
       message: 'Profesionales destacados',
-      professionals
+      professionals,
+      topDriversCount: topDrivers.length
     });
+
   } catch (error: any) {
     console.error('Error al obtener profesionales:', error);
     res.status(500).json({ error: 'Error interno' });
