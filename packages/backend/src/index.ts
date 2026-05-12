@@ -814,32 +814,57 @@ app.get('/professionals/:id', async (req: any, res: any) => {
   }
 });
 
-// HU-22: Registrar un profesional (para futuro panel de suscripción)
-app.post('/professionals', authenticate, async (req: any, res: any) => {
-  const { fullName, profession, description } = req.body;
+// HU-23: Registro como Prestador de Servicios
+app.post('/professionals/register', authenticate, async (req: any, res: any) => {
+  const { 
+    fullName, 
+    profession, 
+    description, 
+    phone, 
+    address, 
+    dniFrontUrl, 
+    dniBackUrl, 
+    certificateUrl 
+  } = req.body;
 
   try {
     if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Debes ser usuario para registrarte como profesional' });
+      return res.status(403).json({ error: 'Debes ser usuario para registrarte como prestador' });
+    }
+
+    if (!fullName || !profession || !phone) {
+      return res.status(400).json({ error: 'Nombre, profesión y teléfono son obligatorios' });
+    }
+
+    if (!dniFrontUrl || !dniBackUrl || !certificateUrl) {
+      return res.status(400).json({ error: 'Debes subir los 3 documentos requeridos' });
     }
 
     const professional = await prisma.professional.create({
       data: {
         userId: req.user.id,
-        fullName,
-        profession,
-        description: description || '',
-        isActive: true,           // Activo por defecto (luego se gestionará con suscripción)
+        fullName: fullName.trim(),
+        profession: profession.trim(),
+        description: description?.trim() || '',
+        phone: phone.trim(),
+        address: address?.trim() || '',
+        dniFrontUrl,
+        dniBackUrl,
+        certificateUrl,
+        isActive: false,           // Pendiente de aprobación
       }
     });
 
+    console.log(`📋 Nueva solicitud de prestador: ${fullName} - ${profession}`);
+
     res.status(201).json({
-      message: 'Profesional registrado correctamente',
-      professional
+      message: 'Solicitud enviada correctamente. Será revisada por un administrador.',
+      professionalId: professional.id
     });
+
   } catch (error: any) {
-    console.error('Error al registrar profesional:', error);
-    res.status(500).json({ error: 'Error interno' });
+    console.error('Error al registrar prestador:', error);
+    res.status(500).json({ error: 'Error interno al enviar la solicitud' });
   }
 });
 
