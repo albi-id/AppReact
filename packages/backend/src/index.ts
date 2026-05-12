@@ -7,6 +7,7 @@ import cors from 'cors';
 import axios from 'axios';
 import { SERVICE_TYPES, getServiceConfig } from './config/services';  
 
+
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
 // ==================== SETUP ====================
@@ -87,142 +88,126 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
   });
 });
 
+
+// HU-x: Mis servicios solicitados (para USER)
 app.get('/services/my', authenticate, async (req: any, res: any) => {
-  const services = await prisma.service.findMany({
-    where: { requesterId: req.user.id },
-    include: { driver: { select: { id: true, email: true } } },
-    orderBy: { requestedAt: 'desc' },
-    take: 10,
-  });
-  res.json({ message: 'Mis servicios', services });
-});
-
-app.get('/services/driver/my', authenticate, async (req: any, res: any) => {
-  if (req.dbUser.role !== 'DRIVER') {
-    return res.status(403).json({ error: 'Solo conductores pueden ver sus servicios asignados' });
-  }
-
-  const services = await prisma.service.findMany({
-    where: { driverId: req.user.id },
-    include: { requester: { select: { id: true, email: true } } },
-    orderBy: { requestedAt: 'desc' },
-    take: 10,
-  });
-
-  res.json({ message: 'Mis servicios asignados', services });
-});
-
-/*
-// HU-07: Solicitar servicio (USER) + Matching automático
-app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
-    if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
-    }
-
-    const { type, pickupLat, pickupLng } = req.body;
-
-    if (!type || !['MOTO', 'TAXI', 'TRAFIC'].includes(type)) {
-      return res.status(400).json({ error: 'type debe ser MOTO, TAXI o TRAFIC' });
-    }
-
-    if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
-      return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números válidos' });
-    }
-
-    const newService = await prisma.service.create({
-      data: {
-        requesterId: req.user.id,
-        type: type as any,
-        pickupLat: pickupLat,
-        pickupLng: pickupLng,
-        status: 'REQUESTED',
-      },
-    });
-
-    console.log(`✅ Servicio REQUESTED creado: ${newService.id} - Tipo: ${type}`);
-
-    // Matching automático después de 1.5 segundos
-    setTimeout(async () => {
-      try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (token) {
-          await axios.post(`https://app-nexos-backend.onrender.com/services/match`, 
-            { serviceId: newService.id },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-          console.log(`🔄 Matching automático ejecutado para servicio ${newService.id}`);
+    const services = await prisma.service.findMany({
+      where: { requesterId: req.user.id },
+      include: {
+        professional: {
+          select: { id: true, fullName: true, profession: true, rating: true }
         }
-      } catch (e: any) {
-        console.error('❌ Error en matching automático:', e.message);
-      }
-    }, 1500);
+      },
+      orderBy: { requestedAt: 'desc' },
+    });
 
     res.json({
-      message: "Servicio solicitado correctamente",
-      service: newService,
+      message: 'Mis servicios solicitados',
+      services
     });
-
   } catch (error: any) {
-    console.error('Error al solicitar servicio:', error);
-    res.status(500).json({ error: 'Error interno al crear solicitud' });
-  }
-});
-*/
-
-
-// ==================== OTRAS RUTAS IMPORTANTES ====================
-
-// HU-04: Perfil conductor
-app.post('/driver/profile', authenticate, async (req: any, res: any) => {
-  const { vehicleType } = req.body;
-
-  // Obtenemos los tipos válidos desde la configuración
-  const validTypes = SERVICE_TYPES.map(s => s.key); // ['MOTO', 'TAXI', 'TRAFIC', ...]
-
-  if (!vehicleType || !validTypes.includes(vehicleType)) {
-    return res.status(400).json({ 
-      error: `vehicleType debe ser uno de: ${validTypes.join(', ')}` 
-    });
-  }
-  
-  try {
-    let userRole = req.dbUser.role;
-    if (userRole === 'USER') {
-      await prisma.user.update({
-        where: { id: req.user.id },
-        data: { role: 'DRIVER' },
-      });
-      userRole = 'DRIVER';
-    }
-
-    const profile = await prisma.driverProfile.upsert({
-      where: { userId: req.user.id },
-      update: { vehicleType, updatedAt: new Date() },
-      create: { userId: req.user.id, vehicleType },
-    });
-
-    res.json({ message: 'Perfil de conductor creado/actualizado', profile, role: userRole });
-  } catch (error: any) {
-    console.error('Error en /driver/profile:', error);
+    console.error('Error en /services/my:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
 
+// HU-12: Mis servicios como profesional (para PROFESSIONAL)
+app.get('/services/professional/my', authenticate, async (req: any, res: any) => {
+  try {
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden ver sus servicios asignados' });
+    }
+
+    const services = await prisma.service.findMany({
+      where: { professionalId: req.user.id },
+      include: {
+        requester: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        }
+      },
+      orderBy: { requestedAt: 'desc' },
+    });
+
+    res.json({
+      message: 'Mis servicios como profesional',
+      services
+    });
+  } catch (error: any) {
+    console.error('Error en /services/professional/my:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+  
+// ==================== OTRAS RUTAS IMPORTANTES ====================
+
+// HU-04: Perfil conductor
+// HU-04: Registro como Profesional (anteriormente Driver)
+app.post('/driver/profile', authenticate, async (req: any, res: any) => {
+  const { vehicleType, profession } = req.body;
+
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Debes ser usuario para registrarte' });
+    }
+
+    const prof = await prisma.professional.upsert({
+      where: { userId: req.user.id },
+      update: {
+        profession: profession || vehicleType,
+        vehicleType: vehicleType || null,
+        isActive: false,
+        status: 'PENDING',
+      },
+      create: {
+        userId: req.user.id,
+        fullName: req.dbUser.email.split('@')[0], // Temporal
+        profession: profession || vehicleType || 'Sin definir',
+        vehicleType: vehicleType || null,
+        isActive: false,
+        status: 'PENDING',
+      },
+    });
+
+    // Cambiar rol a USER (ya no usamos DRIVER)
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { role: 'USER' }
+    });
+
+    res.json({ 
+      message: 'Perfil de profesional creado. Pendiente de aprobación.', 
+      professional: prof 
+    });
+
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+
 // Aceptar, Rechazar, Llegada, Finalizar (versiones básicas pero funcionales)
 app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
+
   try {
-    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores' });
+    if (req.dbUser.role !== 'USER' && req.dbUser.role !== 'ADMIN') {  // Temporal
+      return res.status(403).json({ error: 'Solo profesionales pueden aceptar' });
+    }
 
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
-    if (!service || service.driverId !== req.user.id || service.status !== 'OFFERED') {
+
+    if (!service || service.professionalId !== req.user.id || service.status !== 'OFFERED') {
       return res.status(403).json({ error: 'No puedes aceptar este servicio' });
     }
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
-      data: { status: 'ACCEPTED', acceptedAt: new Date() }
+      data: { 
+        status: 'ACCEPTED', 
+        acceptedAt: new Date() 
+      }
     });
 
     res.json({ message: 'Oferta aceptada', service: updated });
@@ -231,47 +216,49 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
   }
 });
 
-// HU-09: Rechazar oferta + fallback automático al siguiente conductor más cercano
+// HU-09: Rechazar oferta + fallback automático al siguiente profesional más cercano
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
   try {
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo conductores pueden rechazar' });
+    // Cambiado de DRIVER a verificación más flexible
+    if (!['USER', 'ADMIN'].includes(req.dbUser.role)) {
+      return res.status(403).json({ error: 'Solo profesionales pueden rechazar' });
     }
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
     });
 
-    if (!service || service.driverId !== req.user.id || service.status !== 'OFFERED') {
+    if (!service || service.professionalId !== req.user.id || service.status !== 'OFFERED') {
       return res.status(403).json({ error: 'No puedes rechazar este servicio' });
     }
 
-    // Marcar como rechazado y liberar conductor
+    // Marcar como rechazado y liberar profesional
     await prisma.service.update({
       where: { id: serviceId },
       data: { 
         status: 'REJECTED', 
-        driverId: null 
+        professionalId: null 
       },
     });
 
-    console.log(`🚫 Conductor ${req.user.id} rechazó servicio ${serviceId}`);
+    console.log(`🚫 Profesional ${req.user.id} rechazó servicio ${serviceId}`);
 
-    // Buscar conductores disponibles del mismo tipo
-    const drivers = await prisma.driverProfile.findMany({
+    // Buscar profesionales disponibles del mismo tipo y con modalidad TIME_BASED
+    const professionals = await prisma.professional.findMany({
       where: {
-        isOnline: true,
-        vehicleType: service.type,
+        isActive: true,
+        status: 'APPROVED',
+        modalities: { hasSome: ['TIME_BASED'] },
         userId: { not: req.user.id }   // Excluir al que rechazó
       },
       include: { user: true },
     });
 
-    if (drivers.length === 0) {
+    if (professionals.length === 0) {
       return res.json({ 
-        message: 'Oferta rechazada. No hay más conductores disponibles en este momento.', 
+        message: 'Oferta rechazada. No hay más profesionales disponibles en este momento.', 
         status: 'REJECTED' 
       });
     }
@@ -289,36 +276,36 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
     };
 
     // Ordenar por cercanía
-    const candidates = drivers
-      .map(driver => {
-        const loc = driver.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { driver, distanceKm: Infinity };
+    const candidates = professionals
+      .map(pro => {
+        const loc = pro.lastLocation as { lat: number; lng: number } | null;
+        if (!loc) return { professional: pro, distanceKm: Infinity };
         const distanceKm = getDistance(
           service.pickupLat!, 
           service.pickupLng!, 
           loc.lat, 
           loc.lng
         );
-        return { driver, distanceKm };
+        return { professional: pro, distanceKm };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
-    const nextDriver = candidates[0].driver;
+    const nextProfessional = candidates[0].professional;
 
-    // Asignar al siguiente conductor más cercano
+    // Asignar al siguiente profesional más cercano
     const updatedService = await prisma.service.update({
       where: { id: serviceId },
       data: {
-        driverId: nextDriver.userId,
+        professionalId: nextProfessional.userId,
         status: 'OFFERED',
       },
     });
 
-    console.log(`🔄 Servicio ${serviceId} reasignado automáticamente al conductor ${nextDriver.userId}`);
+    console.log(`🔄 Servicio ${serviceId} reasignado automáticamente al profesional ${nextProfessional.fullName}`);
 
     res.json({
-      message: 'Oferta rechazada. Asignada al siguiente conductor más cercano.',
-      nextDriverId: nextDriver.userId,
+      message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
+      nextProfessionalId: nextProfessional.userId,
       distanceKm: candidates[0].distanceKm.toFixed(2),
       status: 'OFFERED'
     });
@@ -332,11 +319,11 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
 
 app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-  try {
-    if (req.dbUser.role !== 'DRIVER') return res.status(403).json({ error: 'Solo conductores' });
 
+  try {
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
-    if (!service || service.driverId !== req.user.id || service.status !== 'ACCEPTED') {
+
+    if (!service || service.professionalId !== req.user.id || service.status !== 'ACCEPTED') {
       return res.status(403).json({ error: 'Acción no permitida' });
     }
 
@@ -351,49 +338,54 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any
   }
 });
 
-
-// HU-13: Finalizar servicio + Calificación + Actualización de estadísticas del conductor
+// HU-13: Finalizar servicio + cálculo de importe (adaptado a Professional)
 app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
   try {
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo conductores pueden finalizar servicios' });
+    if (req.dbUser.role !== 'PROFESSIONAL' && req.dbUser.role !== 'DRIVER') {
+      return res.status(403).json({ error: 'Solo profesionales pueden finalizar el servicio' });
     }
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
-      include: { driver: true }
     });
 
-    if (!service || service.driverId !== req.user.id || service.status !== 'ARRIVED') {
+    if (!service || service.professionalId !== req.user.id || service.status !== 'ARRIVED') {
       return res.status(403).json({ error: 'No puedes finalizar este servicio' });
     }
 
-    const waitMinutes = Math.max(1, Math.round(
-      (new Date().getTime() - service.arrivedAt!.getTime()) / 60000
-    ));
+    // Calcular tiempo de espera
+    const waitMinutes = service.arrivedAt 
+      ? Math.round((new Date().getTime() - service.arrivedAt.getTime()) / 60000)
+      : 5;
 
-    const rates: Record<string, number> = { MOTO: 8, TAXI: 12, TRAFIC: 25 };
-    const ratePerMinute = rates[service.type] || 10;
-    const amount = Math.round(50 + (waitMinutes * ratePerMinute));
+    // Tarifas por tipo (podes ajustarlas)
+    const rates: Record<string, number> = {
+      MOTO: 5,
+      TAXI: 10,
+      TRAFIC: 20,
+    };
+
+    const hourlyRate = rates[service.type as keyof typeof rates] || 8;
+    let amount = Math.max(50, waitMinutes * hourlyRate); // mínimo $50
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
-      data: {
+      data: { 
         status: 'COMPLETED',
         waitEndAt: new Date(),
-        amount: amount,
-      },
+        amount 
+      }
     });
 
-    console.log(`💰 Servicio ${serviceId} finalizado - Importe: $${amount}`);
+    console.log(`✅ Servicio ${serviceId} finalizado. Importe: $${amount} (${waitMinutes} min)`);
 
-    res.json({
+    res.json({ 
       message: 'Servicio finalizado correctamente',
       service: updated,
       importe: amount,
-      waitMinutes: waitMinutes
+      tiempoEsperaMin: waitMinutes
     });
 
   } catch (error: any) {
@@ -402,69 +394,76 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
   }
 });
 
-
-// HU-14: Calificar servicio (Usuario)
+ 
 // HU-14: Calificar servicio (Usuario)
 app.post('/services/:serviceId/rate', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-  const { rating, review } = req.body;
+  const { rating, review } = req.body; // rating: 1-5
 
   try {
     if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Solo usuarios pueden calificar' });
-    }
-
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ error: 'La calificación debe estar entre 1 y 5' });
+      return res.status(403).json({ error: 'Solo los solicitantes pueden calificar' });
     }
 
     const service = await prisma.service.findUnique({
-      where: { id: serviceId }
+      where: { id: serviceId },
+      include: { professional: true }
     });
 
     if (!service || service.requesterId !== req.user.id || service.status !== 'COMPLETED') {
       return res.status(403).json({ error: 'No puedes calificar este servicio' });
     }
 
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'La calificación debe estar entre 1 y 5' });
+    }
+
+    // Actualizar servicio con calificación
     const updatedService = await prisma.service.update({
       where: { id: serviceId },
       data: {
-        rating: rating,
-        review: review || null,
-        paidAt: new Date()
+        rating,
+        review: review?.trim() || null,
       }
     });
 
-    // Calcular promedio del conductor (futuro)
-    if (service.driverId) {
-      const ratings = await prisma.service.findMany({
-        where: { 
-          driverId: service.driverId,
-          rating: { not: null }
-        },
-        select: { rating: true }
+    // Actualizar estadísticas del profesional
+    if (service.professionalId) {
+      const professional = await prisma.professional.findUnique({
+        where: { id: service.professionalId }
       });
 
-      const avgRating = ratings.length > 0 
-        ? ratings.reduce((sum, r) => sum + (r.rating || 0), 0) / ratings.length 
-        : 0;
+      if (professional) {
+        const newCount = (professional.reviewCount || 0) + 1;
+        const newRating = ((professional.rating || 0) * (newCount - 1) + rating) / newCount;
 
-      console.log(`⭐ Conductor ${service.driverId} recibió calificación ${rating} | Promedio: ${avgRating.toFixed(1)}`);
+        await prisma.professional.update({
+          where: { id: service.professionalId },
+          data: {
+            rating: parseFloat(newRating.toFixed(2)),
+            reviewCount: newCount,
+          }
+        });
+
+        console.log(`⭐ Profesional ${service.professionalId} calificado con ${rating} (${newCount} reseñas)`);
+      }
     }
 
     res.json({
-      message: '¡Gracias por tu calificación!',
-      service: updatedService
+      message: 'Calificación registrada correctamente',
+      service: updatedService,
+      rating
     });
 
   } catch (error: any) {
-    console.error('Error al calificar:', error);
-    res.status(500).json({ error: 'Error interno al registrar calificación' });
+    console.error('Error al calificar servicio:', error);
+    res.status(500).json({ error: 'Error interno al calificar' });
   }
 });
 
 // HU-05: Activar/desactivar disponibilidad (En Línea)
-app.patch('/driver/availability', authenticate, async (req: any, res: any) => {
+// HU-05: Activar/desactivar disponibilidad (En Línea) - Adaptado a Professional
+app.patch('/professional/availability', authenticate, async (req: any, res: any) => {
   const { isOnline } = req.body;
 
   if (typeof isOnline !== 'boolean') {
@@ -472,34 +471,38 @@ app.patch('/driver/availability', authenticate, async (req: any, res: any) => {
   }
 
   try {
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo conductores pueden cambiar disponibilidad' });
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden cambiar disponibilidad' });
     }
 
-    const updatedProfile = await prisma.driverProfile.update({
+    const updatedProfile = await prisma.professional.update({
       where: { userId: req.user.id },
       data: {
-        isOnline,
+        isActive: isOnline,        // Usamos isActive en lugar de isOnline
         updatedAt: new Date(),
       },
     });
 
-    console.log(`Driver ${req.user.id} cambió estado a ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+    console.log(`Professional ${req.user.id} cambió estado a ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
 
     res.json({
       message: `Disponibilidad actualizada a ${isOnline ? 'En Línea' : 'Fuera de Línea'}`,
-      isOnline: updatedProfile.isOnline,
+      isOnline: updatedProfile.isActive,
     });
   } catch (error: any) {
-    console.error('Error en /driver/availability:', error);
+    console.error('Error en /professional/availability:', error);
     
     // Si el perfil no existe, lo creamos
     if (error.code === 'P2025') {
-      const newProfile = await prisma.driverProfile.create({
+      const newProfile = await prisma.professional.create({
         data: {
           userId: req.user.id,
-          vehicleType: 'MOTO', // valor por defecto
-          isOnline,
+          fullName: req.user.firstName && req.user.lastName 
+            ? `${req.user.firstName} ${req.user.lastName}` 
+            : 'Profesional',
+          profession: 'General',        // valor por defecto
+          isActive: isOnline,
+          status: 'APPROVED',           // o 'PENDING' según tu flujo
         },
       });
       res.json({ 
@@ -512,45 +515,49 @@ app.patch('/driver/availability', authenticate, async (req: any, res: any) => {
   }
 });
 
-// HU-06.1: Obtener perfil del conductor (importante para leer isOnline correctamente)
-app.get('/driver/profile', authenticate, async (req: any, res: any) => {
+
+// HU-04: Obtener / Crear perfil de Profesional
+app.get('/professional/profile', authenticate, async (req: any, res: any) => {
   try {
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo los conductores pueden ver su perfil' });
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden ver su perfil' });
     }
 
-    const profile = await prisma.driverProfile.findUnique({
+    let profile = await prisma.professional.findUnique({
       where: { userId: req.user.id },
-      select: {
-        id: true,
-        vehicleType: true,
-        isOnline: true,
-        lastLocation: true,
-        updatedAt: true,
-      },
     });
 
-    // Si no tiene perfil, lo creamos con estado OFFLINE por defecto
+    // Si no existe el perfil, lo creamos automáticamente
     if (!profile) {
-      const newProfile = await prisma.driverProfile.create({
+      profile = await prisma.professional.create({
         data: {
           userId: req.user.id,
-          vehicleType: 'MOTO',
-          isOnline: false,        // importante: por defecto OFFLINE
+          fullName: req.user.firstName && req.user.lastName 
+            ? `${req.user.firstName} ${req.user.lastName}` 
+            : req.user.email.split('@')[0],
+          profession: 'General',
+          isActive: false,
+          status: 'PENDING',
         },
       });
-      return res.json(newProfile);
+      console.log(`Perfil de profesional creado automáticamente para ${req.user.id}`);
     }
 
-    res.json(profile);
+    res.json({
+      message: 'Perfil de profesional obtenido',
+      profile,
+      role: req.dbUser.role
+    });
+
   } catch (error: any) {
-    console.error('Error al obtener perfil del conductor:', error);
+    console.error('Error en /professional/profile:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// HU-06.2: Actualizar ubicación en tiempo real del conductor
-app.patch('/driver/location', authenticate, async (req: any, res: any) => {
+
+// HU-06.2: Actualizar ubicación en tiempo real del profesional
+app.patch('/professional/location', authenticate, async (req: any, res: any) => {
   const { lat, lng } = req.body;
 
   if (typeof lat !== 'number' || typeof lng !== 'number') {
@@ -558,11 +565,11 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
   }
 
   try {
-    if (req.dbUser.role !== 'DRIVER') {
-      return res.status(403).json({ error: 'Solo conductores pueden actualizar ubicación' });
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden actualizar ubicación' });
     }
 
-    const updated = await prisma.driverProfile.update({
+    const updated = await prisma.professional.update({
       where: { userId: req.user.id },
       data: {
         lastLocation: { lat, lng },
@@ -570,80 +577,122 @@ app.patch('/driver/location', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`📍 Ubicación actualizada - Conductor ${req.user.id}: (${lat}, ${lng})`);
+    console.log(`📍 Profesional ${req.user.id} actualizó ubicación: (${lat}, ${lng})`);
 
     res.json({
       message: 'Ubicación actualizada correctamente',
       location: { lat, lng }
     });
+
   } catch (error: any) {
     console.error('Error actualizando ubicación:', error);
-    res.status(500).json({ error: 'Error interno' });
+    res.status(500).json({ error: 'Error interno al actualizar ubicación' });
   }
 });
 
+ 
+// Función auxiliar de matching con distancia real
+async function matchService(serviceId: string) {
+  try {
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId }
+    });
 
-// HU-07: Solicitar servicio (USER) - Solo un servicio activo permitido+ Matching automático
+    if (!service || service.status !== 'REQUESTED' || !service.pickupLat || !service.pickupLng) {
+      return;
+    }
+
+    // Buscar profesionales activos que ofrezcan servicios por tiempo
+    const professionals = await prisma.professional.findMany({
+      where: {
+        isActive: true,
+        status: 'APPROVED',
+        modalities: { hasSome: ['TIME_BASED'] }
+      },
+      include: { user: true }
+    });
+
+    if (professionals.length === 0) {
+      console.log(`⚠️ No hay profesionales disponibles para el servicio ${serviceId}`);
+      return;
+    }
+
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    const candidates = professionals
+      .map(pro => {
+        const loc = pro.user.lastLocation as { lat: number; lng: number } | null;
+        const distanceKm = loc 
+          ? getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng) 
+          : Infinity;
+        return { professional: pro, distanceKm };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const closest = candidates[0].professional;
+
+    await prisma.service.update({
+      where: { id: serviceId },
+      data: {
+        professionalId: closest.userId,
+        status: 'OFFERED',
+      },
+    });
+
+    console.log(`🔄 Matching exitoso: Servicio ${serviceId} asignado a ${closest.fullName} (${candidates[0].distanceKm.toFixed(2)} km)`);
+
+  } catch (error) {
+    console.error('Error en matchService:', error);
+  }
+}
+
+// HU-07: Solicitar servicio
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
+      return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
     const { type, pickupLat, pickupLng } = req.body;
 
-   if (!type || !validTypes.includes(type)) {
-  return res.status(400).json({ 
-    error: `type debe ser uno de: ${validTypes.join(', ')}` 
-  });
-  }
-
+    if (!type) return res.status(400).json({ error: 'Tipo de servicio requerido' });
     if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
-      return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números válidos' });
+      return res.status(400).json({ error: 'Coordenadas inválidas' });
     }
 
-    // ←←← NUEVA VALIDACIÓN: Solo un servicio activo permitido
+    // Verificar servicio activo
     const activeService = await prisma.service.findFirst({
       where: {
         requesterId: req.user.id,
-        status: {
-          notIn: ['COMPLETED', 'CANCELED', 'REJECTED']
-        }
+        status: { notIn: ['COMPLETED', 'CANCELLED', 'REJECTED'] }
       }
     });
 
     if (activeService) {
-      return res.status(400).json({ 
-        error: 'Ya tienes un servicio en curso. Debes esperar a que finalice o se cancele antes de solicitar otro.' 
-      });
+      return res.status(400).json({ error: 'Ya tienes un servicio en curso.' });
     }
 
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
-        type: type as any,
-        pickupLat: pickupLat,
-        pickupLng: pickupLng,
+        type,
+        pickupLat,
+        pickupLng,
         status: 'REQUESTED',
       },
     });
 
-    console.log(`✅ Servicio REQUESTED creado: ${newService.id}`);
-
     // Matching automático
-    setTimeout(async () => {
-      try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (token) {
-          await axios.post(`https://app-nexos-backend.onrender.com/services/match`, 
-            { serviceId: newService.id },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
-        }
-      } catch (e) {
-        console.error('Error en matching automático:', e);
-      }
-    }, 1500);
+    setTimeout(() => matchService(newService.id), 1500);
 
     res.json({
       message: "Servicio solicitado correctamente",
@@ -652,95 +701,89 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
   } catch (error: any) {
     console.error('Error al solicitar servicio:', error);
-    res.status(500).json({ error: 'Error interno al crear solicitud' });
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// HU-08: Matching automático - Asignar al conductor más cercano
+// HU-08: Matching automático - Buscar Professional más cercano
 app.post('/services/match', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.body;
 
-  if (!serviceId) {
-    return res.status(400).json({ error: 'serviceId requerido' });
-  }
-
   try {
     const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      include: { requester: true },
+      where: { id: serviceId }
     });
 
     if (!service || service.status !== 'REQUESTED') {
       return res.status(404).json({ error: 'Servicio no encontrado o ya procesado' });
     }
 
-    const drivers = await prisma.driverProfile.findMany({
+    const professionals = await prisma.professional.findMany({
       where: {
-        isOnline: true,
-        vehicleType: service.type,
+        isActive: true,
+        status: 'APPROVED',
+        modalities: { hasSome: ['TIME_BASED'] },   // Solo profesionales que ofrecen por tiempo
       },
       include: { user: true },
     });
 
-    if (drivers.length === 0) {
-      return res.json({ message: 'No hay conductores disponibles en este momento', candidates: [] });
+    if (professionals.length === 0) {
+      return res.json({ message: 'No hay profesionales disponibles en este momento' });
     }
 
-    // Función para calcular distancia (Haversine)
     const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     };
 
-    const candidates = drivers
-      .map(driver => {
-        const loc = driver.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { driver, distanceKm: Infinity };
-        const distanceKm = getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng);
-        return { driver, distanceKm };
-      })
-      .sort((a, b) => a.distanceKm - b.distanceKm);
+    const candidates = professionals
+  .map(pro => {
+    // TODO: Agregar lastLocation al modelo Professional más adelante
+    const distance = 999; // Temporal - todos tienen misma distancia
+    return { professional: pro, distance };
+  })
+  .sort((a, b) => a.distance - b.distance);
 
-    const closest = candidates[0];
+    const closest = candidates[0].professional;
 
-    const updatedService = await prisma.service.update({
+    const updated = await prisma.service.update({
       where: { id: serviceId },
       data: {
-        driverId: closest.driver.userId,
+        professionalId: closest.userId,
         status: 'OFFERED',
       },
     });
 
     res.json({
-      message: 'Oferta enviada al conductor más cercano',
-      driverId: closest.driver.userId,
-      distanceKm: closest.distanceKm.toFixed(2),
-      service: updatedService,
+      message: 'Oferta enviada al profesional más cercano',
+      professionalId: closest.userId,
+      distanceKm: candidates[0].distance.toFixed(2),
+      service: updated,
     });
+
   } catch (error: any) {
     console.error('Error en matching:', error);
     res.status(500).json({ error: 'Error interno en matching' });
   }
 });
 
-
-//nueva funcionalidad listar mejores profesionales
 // =============================================
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
 
-// HU-20: Listado de Profesionales Destacados (incluye conductores bien calificados)
+// HU-20: Listado de Profesionales Destacados
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession } = req.query;
 
   try {
-    const where: any = { isActive: true };
+    const where: any = { 
+      isActive: true,
+      status: 'APPROVED'
+    };
 
     if (profession) {
       where.profession = { contains: profession, mode: 'insensitive' };
@@ -755,7 +798,11 @@ app.get('/professionals', async (req: any, res: any) => {
 
     const professionals = await prisma.professional.findMany({
       where,
-      include: { user: true },
+      include: { 
+        user: {
+          select: { id: true, firstName: true, lastName: true, email: true }
+        }
+      },
       orderBy: [
         { rating: 'desc' },
         { reviewCount: 'desc' }
@@ -763,25 +810,25 @@ app.get('/professionals', async (req: any, res: any) => {
       take: 30,
     });
 
-    // Conductores destacados automáticamente desde los servicios
-    const topDrivers = await prisma.service.groupBy({
-      by: ['driverId'],
+    // Top profesionales según calificaciones de servicios
+    const topProfessionals = await prisma.service.groupBy({
+      by: ['professionalId'],
       where: {
         rating: { not: null },
-        driverId: { not: null }
+        professionalId: { not: null }
       },
       _avg: { rating: true },
-      _count: { id: true },           // ← Corrección aquí
+      _count: { id: true },
       having: {
         rating: { _avg: { gte: 4.0 } },
-        id: { _count: { gte: 3 } }     // ← Corrección aquí
+        id: { _count: { gte: 3 } }
       },
     });
 
     res.json({
       message: 'Profesionales destacados',
       professionals,
-      topDriversCount: topDrivers.length
+      topRatedCount: topProfessionals.length
     });
 
   } catch (error: any) {
@@ -799,7 +846,7 @@ app.get('/professionals/:id', async (req: any, res: any) => {
       where: { id },
       include: {
         user: {
-          select: { id: true, email: true }
+          select: { id: true, firstName: true, lastName: true, email: true }
         }
       }
     });
@@ -808,7 +855,10 @@ app.get('/professionals/:id', async (req: any, res: any) => {
       return res.status(404).json({ error: 'Profesional no encontrado' });
     }
 
-    res.json(professional);
+    res.json({
+      message: 'Detalle del profesional',
+      professional
+    });
   } catch (error: any) {
     res.status(500).json({ error: 'Error interno' });
   }
@@ -833,7 +883,7 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     }
 
     if (!fullName || !profession || !phone) {
-      return res.status(400).json({ error: 'Nombre, profesión y teléfono son obligatorios' });
+      return res.status(400).json({ error: 'Nombre completo, profesión y teléfono son obligatorios' });
     }
 
     if (!dniFrontUrl || !dniBackUrl || !certificateUrl) {
@@ -852,6 +902,7 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         dniBackUrl,
         certificateUrl,
         isActive: false,           // Pendiente de aprobación
+        status: 'PENDING',
       }
     });
 
@@ -867,7 +918,6 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     res.status(500).json({ error: 'Error interno al enviar la solicitud' });
   }
 });
-
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
