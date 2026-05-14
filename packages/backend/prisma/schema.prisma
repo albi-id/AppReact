@@ -37,7 +37,7 @@ enum Modality {
   HIGHLIGHTED
 }
 
-// ==================== MODELOS ====================
+// ==================== MODELOS =====================
 
 model User {
   id            String   @id @default(cuid())
