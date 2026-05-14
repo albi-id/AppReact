@@ -887,7 +887,7 @@ app.get('/professionals/:id', async (req: any, res: any) => {
   }
 });
 
-// HU-23: Registro como Prestador de Servicios
+// HU-23: Registro como Prestador de Servicios 
 app.post('/professionals/register', authenticate, async (req: any, res: any) => {
   const { 
     fullName, 
@@ -897,7 +897,8 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     address, 
     dniFrontUrl, 
     dniBackUrl, 
-    certificateUrl 
+    certificateUrl,
+    modalities   // ← Nuevo campo (array)
   } = req.body;
 
   try {
@@ -905,12 +906,21 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
       return res.status(403).json({ error: 'Debes ser usuario para registrarte como prestador' });
     }
 
-    if (!fullName || !profession || !phone) {
-      return res.status(400).json({ error: 'Nombre completo, profesión y teléfono son obligatorios' });
+    if (!fullName || !profession || !phone || !modalities || modalities.length === 0) {
+      return res.status(400).json({ 
+        error: 'Nombre, profesión, teléfono y al menos una modalidad son obligatorios' 
+      });
     }
 
     if (!dniFrontUrl || !dniBackUrl || !certificateUrl) {
       return res.status(400).json({ error: 'Debes subir los 3 documentos requeridos' });
+    }
+
+    // Validar que las modalidades sean válidas
+    const validModalities = ['TIME_BASED', 'FIXED_PRICE'];
+    const invalid = modalities.filter((m: string) => !validModalities.includes(m));
+    if (invalid.length > 0) {
+      return res.status(400).json({ error: `Modalidades inválidas: ${invalid.join(', ')}` });
     }
 
     const professional = await prisma.professional.create({
@@ -924,12 +934,13 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         dniFrontUrl,
         dniBackUrl,
         certificateUrl,
-        isActive: false,           // Pendiente de aprobación
+        modalities,           // ← Guardamos el array
+        isActive: false,
         status: 'PENDING',
       }
     });
 
-    console.log(`📋 Nueva solicitud de prestador: ${fullName} - ${profession}`);
+    console.log(`📋 Nueva solicitud de prestador: ${fullName} - Modalidades: ${modalities.join(', ')}`);
 
     res.status(201).json({
       message: 'Solicitud enviada correctamente. Será revisada por un administrador.',
