@@ -953,6 +953,47 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
   }
 });
 
+// HU-24: Aprobar / Rechazar solicitud de Prestador (Admin)
+app.patch('/professionals/:id/status', authenticate, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { status } = req.body; // APPROVED o REJECTED
+
+  try {
+    if (req.dbUser.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo administradores pueden hacer esto' });
+    }
+
+    const professional = await prisma.professional.findUnique({
+      where: { id },
+      include: { user: true }
+    });
+
+    if (!professional) return res.status(404).json({ error: 'Profesional no encontrado' });
+
+    await prisma.professional.update({
+      where: { id },
+      data: { 
+        status,
+        isActive: status === 'APPROVED'
+      }
+    });
+
+    // Si se aprueba → Cambiar rol del usuario a PROFESSIONAL
+    if (status === 'APPROVED') {
+      await prisma.user.update({
+        where: { id: professional.userId },
+        data: { role: 'PROFESSIONAL' }
+      });
+      console.log(`✅ Usuario ${professional.userId} promovido a PROFESSIONAL`);
+    }
+
+    res.json({ message: `Profesional ${status === 'APPROVED' ? 'aprobado' : 'rechazado'} correctamente` });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
