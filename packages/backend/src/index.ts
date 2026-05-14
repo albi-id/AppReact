@@ -16,7 +16,7 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_ANON_KEY!
 );
-const validTypes = ['MOTO', 'TAXI', 'TRAFIC']; // Puedes sacarlo de config después
+
 
 const app = express();
 
@@ -343,7 +343,7 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
   const { serviceId } = req.params;
 
   try {
-    if (req.dbUser.role !== 'PROFESSIONAL' && req.dbUser.role !== 'DRIVER') {
+    if (!['PROFESSIONAL', 'DRIVER'].includes(req.dbUser.role)) {
       return res.status(403).json({ error: 'Solo profesionales pueden finalizar el servicio' });
     }
 
@@ -355,30 +355,22 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
       return res.status(403).json({ error: 'No puedes finalizar este servicio' });
     }
 
-    // Calcular tiempo de espera
+    const config = getServiceConfig(service.type);
+
     const waitMinutes = service.arrivedAt 
       ? Math.round((new Date().getTime() - service.arrivedAt.getTime()) / 60000)
       : 5;
 
-    // Tarifas por tipo (podes ajustarlas)
-    const rates: Record<string, number> = {
-      MOTO: 5,
-      TAXI: 10,
-      TRAFIC: 20,
-    };
-
-    const hourlyRate = rates[service.type as keyof typeof rates] || 8;
-    let amount = Math.max(50, waitMinutes * hourlyRate); // mínimo $50
+    const amount = Math.max(config.basePrice, waitMinutes * config.pricePerMinute);
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
       data: { 
         status: 'COMPLETED',
+        waitEndAt: new Date(),
         amount 
       }
     });
-
-    console.log(`✅ Servicio ${serviceId} finalizado. Importe: $${amount} (${waitMinutes} min)`);
 
     res.json({ 
       message: 'Servicio finalizado correctamente',
@@ -389,10 +381,9 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
 
   } catch (error: any) {
     console.error('Error al finalizar servicio:', error);
-    res.status(500).json({ error: 'Error interno al finalizar servicio' });
+    res.status(500).json({ error: 'Error interno' });
   }
 });
-
  
 // HU-14: Calificar servicio (Usuario)
 app.post('/services/:serviceId/rate', authenticate, async (req: any, res: any) => {
@@ -654,48 +645,69 @@ async function matchService(serviceId: string) {
   }
 }
 
+ 
 // HU-07: Solicitar servicio
 app.post('/services/request', authenticate, async (req: any, res: any) => {
+  const { type, pickupLat, pickupLng } = req.body;
+
   try {
     if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
+      return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
     }
 
-    const { type, pickupLat, pickupLng } = req.body;
+    // Validación usando tu archivo services.ts
+    const serviceConfig = SERVICE_TYPES.find(s => s.key === type);
+    if (!serviceConfig) {
+      return res.status(400).json({ 
+        error: `Tipo de servicio inválido. Opciones: ${SERVICE_TYPES.map(s => s.key).join(', ')}` 
+      });
+    }
 
-    if (!type) return res.status(400).json({ error: 'Tipo de servicio requerido' });
     if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
-      return res.status(400).json({ error: 'Coordenadas inválidas' });
+      return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números' });
     }
 
     // Verificar servicio activo
     const activeService = await prisma.service.findFirst({
       where: {
         requesterId: req.user.id,
-        status: { notIn: ['COMPLETED', 'CANCELLED', 'REJECTED'] }
+        status: { in: ['REQUESTED', 'OFFERED', 'ACCEPTED', 'ARRIVED'] }
       }
     });
 
     if (activeService) {
-      return res.status(400).json({ error: 'Ya tienes un servicio en curso.' });
+      return res.status(400).json({ 
+        error: 'Ya tienes un servicio en curso. Debes finalizarlo antes de solicitar otro.' 
+      });
     }
 
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
-        type,
+        type: type as any,
         pickupLat,
         pickupLng,
         status: 'REQUESTED',
+        requestedAt: new Date(),
       },
     });
 
     // Matching automático
-    setTimeout(() => matchService(newService.id), 1500);
+    setTimeout(async () => {
+      try {
+        await axios.post(
+          `${process.env.BACKEND_URL || 'http://localhost:3000'}/services/match`,
+          { serviceId: newService.id },
+          { headers: { Authorization: req.headers.authorization } }
+        );
+      } catch (e) {
+        console.error('Error en matching automático:', e);
+      }
+    }, 800);
 
-    res.json({
-      message: "Servicio solicitado correctamente",
-      service: newService,
+    res.status(201).json({
+      message: 'Servicio solicitado correctamente',
+      service: newService
     });
 
   } catch (error: any) {
@@ -704,13 +716,17 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
   }
 });
 
-// HU-08: Matching automático - Buscar Professional más cercano
+// HU-08: Matching automático al profesional más cercano
 app.post('/services/match', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.body;
 
+  if (!serviceId) {
+    return res.status(400).json({ error: 'serviceId requerido' });
+  }
+
   try {
     const service = await prisma.service.findUnique({
-      where: { id: serviceId }
+      where: { id: serviceId },
     });
 
     if (!service || service.status !== 'REQUESTED') {
@@ -721,35 +737,44 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
       where: {
         isActive: true,
         status: 'APPROVED',
-        modalities: { hasSome: ['TIME_BASED'] },   // Solo profesionales que ofrecen por tiempo
+        modalities: { hasSome: ['TIME_BASED'] },
       },
       include: { user: true },
     });
 
     if (professionals.length === 0) {
-      return res.json({ message: 'No hay profesionales disponibles en este momento' });
+      return res.json({ 
+        message: 'No hay profesionales disponibles en este momento', 
+        candidates: [] 
+      });
     }
 
     const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
       const R = 6371;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
       const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     };
 
     const candidates = professionals
-  .map(pro => {
-    // TODO: Agregar lastLocation al modelo Professional más adelante
-    const distance = 999; // Temporal - todos tienen misma distancia
-    return { professional: pro, distance };
-  })
-  .sort((a, b) => a.distance - b.distance);
+      .map(pro => {
+        const loc = pro.lastLocation as { lat: number; lng: number } | null;
+        if (!loc) return { professional: pro, distanceKm: Infinity };
+        const distanceKm = getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng);
+        return { professional: pro, distanceKm };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+      .slice(0, 5);
+
+    if (candidates.length === 0 || candidates[0].distanceKm === Infinity) {
+      return res.json({ message: 'No hay profesionales con ubicación válida', candidates: [] });
+    }
 
     const closest = candidates[0].professional;
 
-    const updated = await prisma.service.update({
+    const updatedService = await prisma.service.update({
       where: { id: serviceId },
       data: {
         professionalId: closest.userId,
@@ -758,10 +783,10 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
     });
 
     res.json({
-      message: 'Oferta enviada al profesional más cercano',
+      message: 'Profesional más cercano encontrado',
       professionalId: closest.userId,
-      distanceKm: candidates[0].distance.toFixed(2),
-      service: updated,
+      distanceKm: candidates[0].distanceKm.toFixed(2),
+      service: updatedService
     });
 
   } catch (error: any) {
@@ -769,7 +794,6 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
     res.status(500).json({ error: 'Error interno en matching' });
   }
 });
-
 // =============================================
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
