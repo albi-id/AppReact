@@ -367,7 +367,7 @@ app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res
       where: { id: serviceId },
       data: { 
         status: 'COMPLETED',
-        waitEndAt: new Date(),
+        completedAt: new Date(),
         amount 
       }
     });
