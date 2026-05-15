@@ -583,9 +583,11 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 
  // ==================== SOLICITAR SERVICIO + MATCHING AUTOMÁTICO ====================
 
-// HU-07: Solicitar servicio
+// HU-07: Solicitar servicio + Matching (versión debug fuerte)
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng } = req.body;
+
+  console.log(`📥 [REQUEST] Nueva solicitud recibida - Type: ${type}, Lat: ${pickupLat}, Lng: ${pickupLng}`);
 
   try {
     if (req.dbUser.role !== 'USER') {
@@ -594,12 +596,10 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     const serviceConfig = SERVICE_TYPES.find(s => s.key === type);
     if (!serviceConfig) {
-      return res.status(400).json({ 
-        error: `Tipo de servicio inválido. Opciones: ${SERVICE_TYPES.map(s => s.key).join(', ')}` 
-      });
+      return res.status(400).json({ error: 'Tipo de servicio inválido' });
     }
 
-    // Verificar si ya tiene servicio activo
+    // Verificar servicio activo
     const activeService = await prisma.service.findFirst({
       where: {
         requesterId: req.user.id,
@@ -622,16 +622,19 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
+    console.log(`✅ [REQUEST] Servicio creado con ID: ${newService.id}`);
+
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id
     });
 
-    // Matching automático en segundo plano
-    setTimeout(() => matchService(newService.id), 800);
+    // Llamada directa (sin setTimeout) para debug
+    console.log(`⏳ [REQUEST] Iniciando matching inmediato...`);
+    await matchService(newService.id);   // ← Llamada directa para probar
 
   } catch (error: any) {
-    console.error('Error al solicitar servicio:', error);
+    console.error('💥 [REQUEST] Error general:', error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
