@@ -636,15 +636,25 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
   }
 });
 
-// ==================== FUNCIÓN INTERNA DE MATCHING ====================
+// ==================== FUNCIÓN INTERNA DE MATCHING (con logs detallados) ====================
 const matchService = async (serviceId: string) => {
   try {
+    console.log(`🔍 Iniciando matching para servicio: ${serviceId}`);
+
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
       include: { requester: true }
     });
 
-    if (!service || service.status !== 'REQUESTED') return;
+    if (!service) {
+      console.log(`❌ Servicio ${serviceId} no encontrado`);
+      return;
+    }
+
+    if (service.status !== 'REQUESTED') {
+      console.log(`⚠️ Servicio ${serviceId} ya no está en REQUESTED (estado actual: ${service.status})`);
+      return;
+    }
 
     const professionals = await prisma.professional.findMany({
       where: {
@@ -655,12 +665,14 @@ const matchService = async (serviceId: string) => {
       include: { user: true }
     });
 
+    console.log(`📊 Profesionales encontrados: ${professionals.length}`);
+
     if (professionals.length === 0) {
       await prisma.service.update({
         where: { id: serviceId },
         data: { status: 'CANCELLED' }
       });
-      console.log(`❌ No hay profesionales disponibles para el servicio ${serviceId}`);
+      console.log(`❌ No hay profesionales disponibles`);
       return;
     }
 
@@ -678,15 +690,20 @@ const matchService = async (serviceId: string) => {
     const candidates = professionals
       .map(pro => {
         const loc = pro.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { pro, distanceKm: Infinity };
+        if (!loc) {
+          console.log(`⚠️ Profesional ${pro.fullName} sin ubicación`);
+          return { pro, distanceKm: Infinity };
+        }
         const distanceKm = getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng);
+        console.log(`📍 ${pro.fullName} → ${distanceKm.toFixed(2)} km`);
         return { pro, distanceKm };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     const closest = candidates[0].pro;
+    console.log(`🏆 Profesional más cercano: ${closest.fullName} (${candidates[0].distanceKm.toFixed(2)} km)`);
 
-    await prisma.service.update({
+    const updated = await prisma.service.update({
       where: { id: serviceId },
       data: {
         professionalId: closest.userId,
@@ -694,13 +711,12 @@ const matchService = async (serviceId: string) => {
       }
     });
 
-    console.log(`🎯 Servicio ${serviceId} asignado a ${closest.fullName} (${candidates[0].distanceKm.toFixed(2)} km)`);
+    console.log(`✅ Servicio ${serviceId} asignado correctamente a ${closest.fullName}`);
 
   } catch (error) {
-    console.error('Error en matchService:', error);
+    console.error('❌ Error grave en matchService:', error);
   }
 };
- 
 
 // =============================================
 // PROFESIONALES DESTACADOS (Suscripción Premium)
