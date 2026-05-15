@@ -583,58 +583,49 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 
  // ==================== SOLICITAR SERVICIO + MATCHING AUTOMÁTICO ====================
 
-// HU-07: Solicitar servicio + Matching (versión debug fuerte)
+// ==================== SOLICITAR SERVICIO (VERSIÓN DEBUG) ====================
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  const { type, pickupLat, pickupLng } = req.body;
+  console.log("📥 [REQUEST] Endpoint alcanzado");
+  console.log("Body recibido:", req.body);
+  console.log("Usuario:", req.user?.id, "Role:", req.dbUser?.role);
 
-  console.log(`📥 [REQUEST] Nueva solicitud recibida - Type: ${type}, Lat: ${pickupLat}, Lng: ${pickupLng}`);
+  const { type, pickupLat, pickupLng } = req.body;
 
   try {
     if (req.dbUser.role !== 'USER') {
+      console.log("❌ Rol incorrecto");
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
-    const serviceConfig = SERVICE_TYPES.find(s => s.key === type);
-    if (!serviceConfig) {
-      return res.status(400).json({ error: 'Tipo de servicio inválido' });
-    }
-
-    // Verificar servicio activo
-    const activeService = await prisma.service.findFirst({
-      where: {
-        requesterId: req.user.id,
-        status: { in: ['REQUESTED', 'OFFERED', 'ACCEPTED', 'ARRIVED'] }
-      }
-    });
-
-    if (activeService) {
-      return res.status(400).json({ error: 'Ya tienes un servicio en curso' });
+    if (!type || !pickupLat || !pickupLng) {
+      console.log("❌ Datos incompletos");
+      return res.status(400).json({ error: 'Faltan datos requeridos' });
     }
 
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
         type: type as any,
-        pickupLat,
-        pickupLng,
+        pickupLat: parseFloat(pickupLat),
+        pickupLng: parseFloat(pickupLng),
         status: 'REQUESTED',
         requestedAt: new Date(),
       },
     });
 
-    console.log(`✅ [REQUEST] Servicio creado con ID: ${newService.id}`);
+    console.log(`✅ [REQUEST] Servicio creado exitosamente - ID: ${newService.id}`);
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id
     });
 
-    // Llamada directa (sin setTimeout) para debug
-    console.log(`⏳ [REQUEST] Iniciando matching inmediato...`);
-    await matchService(newService.id);   // ← Llamada directa para probar
+    // Matching
+    console.log(`⏳ Iniciando matching para servicio ${newService.id}...`);
+    await matchService(newService.id);
 
   } catch (error: any) {
-    console.error('💥 [REQUEST] Error general:', error);
+    console.error("💥 [REQUEST] Error completo:", error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
