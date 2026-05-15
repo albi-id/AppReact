@@ -628,58 +628,30 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // ==================== MATCHING AUTOMÁTICO ====================
 const matchService = async (serviceId: string) => {
   try {
-    console.log(`🔍 [MATCH] Buscando profesionales para servicio ${serviceId}`);
+    console.log(`🔍 [MATCH] Iniciando para servicio ${serviceId}`);
 
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId }
-    });
-
-    if (!service) {
-      console.log(`❌ [MATCH] Servicio no encontrado`);
-      return;
-    }
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) return console.log(`❌ Servicio no encontrado`);
 
     const professionals = await prisma.professional.findMany({
       where: {
         isActive: true,
         status: 'APPROVED',
-        modalities: { hasSome: ['TIME_BASED'] }
+        // Quitamos el filtro de modalities temporalmente para probar
+        // modalities: { hasSome: ['TIME_BASED'] }
       },
       include: { user: true }
     });
 
-    console.log(`👥 [MATCH] Profesionales encontrados: ${professionals.length}`);
+    console.log(`👥 Profesionales activos encontrados: ${professionals.length}`);
 
     if (professionals.length === 0) {
-      await prisma.service.update({
-        where: { id: serviceId },
-        data: { status: 'CANCELLED' }
-      });
-      console.log(`❌ [MATCH] No hay profesionales disponibles`);
-      return;
+      await prisma.service.update({ where: { id: serviceId }, data: { status: 'CANCELLED' }});
+      return console.log(`❌ No hay profesionales`);
     }
 
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371;
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLon = ((lon2 - lon1) * Math.PI) / 180;
-      const a = Math.sin(dLat / 2) ** 2 + 
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-                Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    };
-
-    const candidates = professionals
-      .map(pro => {
-        const loc = pro.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { pro, distanceKm: Infinity };
-        const distanceKm = getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng);
-        return { pro, distanceKm };
-      })
-      .sort((a, b) => a.distanceKm - b.distanceKm);
-
-    const closest = candidates[0].pro;
+    // Tomamos el primero (para debug)
+    const closest = professionals[0];
 
     await prisma.service.update({
       where: { id: serviceId },
@@ -689,10 +661,10 @@ const matchService = async (serviceId: string) => {
       }
     });
 
-    console.log(`🎯 [MATCH] ÉXITO - Asignado a ${closest.fullName}`);
+    console.log(`🎯 ASIGNADO exitosamente a ${closest.fullName} (${closest.userId})`);
 
   } catch (error: any) {
-    console.error(`💥 [MATCH] Error:`, error.message);
+    console.error(`💥 Error en matchService:`, error.message);
   }
 };
 
