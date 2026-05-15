@@ -580,82 +580,18 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
   }
 });
 
- 
-// Función auxiliar de matching con distancia real
-async function matchService(serviceId: string) {
-  try {
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId }
-    });
 
-    if (!service || service.status !== 'REQUESTED' || !service.pickupLat || !service.pickupLng) {
-      return;
-    }
+ // ==================== SOLICITAR SERVICIO + MATCHING AUTOMÁTICO ====================
 
-    // Buscar profesionales activos que ofrezcan servicios por tiempo
-    const professionals = await prisma.professional.findMany({
-      where: {
-        isActive: true,
-        status: 'APPROVED',
-        modalities: { hasSome: ['TIME_BASED'] }
-      },
-      include: { user: true }
-    });
-
-    if (professionals.length === 0) {
-      console.log(`⚠️ No hay profesionales disponibles para el servicio ${serviceId}`);
-      return;
-    }
-
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371;
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLon = ((lon2 - lon1) * Math.PI) / 180;
-      const a = Math.sin(dLat / 2) ** 2 +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    };
-
-    const candidates = professionals
-      .map(pro => {
-        const loc = pro.user.lastLocation as { lat: number; lng: number } | null;
-        const distanceKm = loc 
-          ? getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng) 
-          : Infinity;
-        return { professional: pro, distanceKm };
-      })
-      .sort((a, b) => a.distanceKm - b.distanceKm);
-
-    const closest = candidates[0].professional;
-
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: {
-        professionalId: closest.userId,
-        status: 'OFFERED',
-      },
-    });
-
-    console.log(`🔄 Matching exitoso: Servicio ${serviceId} asignado a ${closest.fullName} (${candidates[0].distanceKm.toFixed(2)} km)`);
-
-  } catch (error) {
-    console.error('Error en matchService:', error);
-  }
-}
-
- 
 // HU-07: Solicitar servicio
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng } = req.body;
 
   try {
     if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Solo usuarios solicitantes pueden pedir servicio' });
+      return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
-    // Validación usando tu archivo services.ts
     const serviceConfig = SERVICE_TYPES.find(s => s.key === type);
     if (!serviceConfig) {
       return res.status(400).json({ 
@@ -663,11 +599,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       });
     }
 
-    if (typeof pickupLat !== 'number' || typeof pickupLng !== 'number') {
-      return res.status(400).json({ error: 'pickupLat y pickupLng deben ser números' });
-    }
-
-    // Verificar servicio activo
+    // Verificar si ya tiene servicio activo
     const activeService = await prisma.service.findFirst({
       where: {
         requesterId: req.user.id,
@@ -676,9 +608,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     });
 
     if (activeService) {
-      return res.status(400).json({ 
-        error: 'Ya tienes un servicio en curso. Debes finalizarlo antes de solicitar otro.' 
-      });
+      return res.status(400).json({ error: 'Ya tienes un servicio en curso' });
     }
 
     const newService = await prisma.service.create({
@@ -692,46 +622,29 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    // Matching automático
-    setTimeout(async () => {
-      try {
-        await axios.post(
-          `${process.env.BACKEND_URL || 'http://localhost:3000'}/services/match`,
-          { serviceId: newService.id },
-          { headers: { Authorization: req.headers.authorization } }
-        );
-      } catch (e) {
-        console.error('Error en matching automático:', e);
-      }
-    }, 800);
-
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
-      service: newService
+      serviceId: newService.id
     });
+
+    // Matching automático en segundo plano
+    setTimeout(() => matchService(newService.id), 800);
 
   } catch (error: any) {
     console.error('Error al solicitar servicio:', error);
-    res.status(500).json({ error: 'Error interno' });
+    res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
 
-// HU-08: Matching automático al profesional más cercano
-app.post('/services/match', authenticate, async (req: any, res: any) => {
-  const { serviceId } = req.body;
-
-  if (!serviceId) {
-    return res.status(400).json({ error: 'serviceId requerido' });
-  }
-
+// ==================== FUNCIÓN INTERNA DE MATCHING ====================
+const matchService = async (serviceId: string) => {
   try {
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
+      include: { requester: true }
     });
 
-    if (!service || service.status !== 'REQUESTED') {
-      return res.status(404).json({ error: 'Servicio no encontrado o ya procesado' });
-    }
+    if (!service || service.status !== 'REQUESTED') return;
 
     const professionals = await prisma.professional.findMany({
       where: {
@@ -739,21 +652,25 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
         status: 'APPROVED',
         modalities: { hasSome: ['TIME_BASED'] },
       },
-      include: { user: true },
+      include: { user: true }
     });
 
     if (professionals.length === 0) {
-      return res.json({ 
-        message: 'No hay profesionales disponibles en este momento', 
-        candidates: [] 
+      await prisma.service.update({
+        where: { id: serviceId },
+        data: { status: 'CANCELLED' }
       });
+      console.log(`❌ No hay profesionales disponibles para el servicio ${serviceId}`);
+      return;
     }
 
     const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
       const R = 6371;
       const dLat = ((lat2 - lat1) * Math.PI) / 180;
       const dLon = ((lon2 - lon1) * Math.PI) / 180;
-      const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+      const a = Math.sin(dLat / 2) ** 2 + 
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                Math.sin(dLon / 2) ** 2;
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     };
@@ -761,39 +678,30 @@ app.post('/services/match', authenticate, async (req: any, res: any) => {
     const candidates = professionals
       .map(pro => {
         const loc = pro.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { professional: pro, distanceKm: Infinity };
+        if (!loc) return { pro, distanceKm: Infinity };
         const distanceKm = getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng);
-        return { professional: pro, distanceKm };
+        return { pro, distanceKm };
       })
-      .sort((a, b) => a.distanceKm - b.distanceKm)
-      .slice(0, 5);
+      .sort((a, b) => a.distanceKm - b.distanceKm);
 
-    if (candidates.length === 0 || candidates[0].distanceKm === Infinity) {
-      return res.json({ message: 'No hay profesionales con ubicación válida', candidates: [] });
-    }
+    const closest = candidates[0].pro;
 
-    const closest = candidates[0].professional;
-
-    const updatedService = await prisma.service.update({
+    await prisma.service.update({
       where: { id: serviceId },
       data: {
         professionalId: closest.userId,
         status: 'OFFERED',
-      },
+      }
     });
 
-    res.json({
-      message: 'Profesional más cercano encontrado',
-      professionalId: closest.userId,
-      distanceKm: candidates[0].distanceKm.toFixed(2),
-      service: updatedService
-    });
+    console.log(`🎯 Servicio ${serviceId} asignado a ${closest.fullName} (${candidates[0].distanceKm.toFixed(2)} km)`);
 
-  } catch (error: any) {
-    console.error('Error en matching:', error);
-    res.status(500).json({ error: 'Error interno en matching' });
+  } catch (error) {
+    console.error('Error en matchService:', error);
   }
-});
+};
+ 
+
 // =============================================
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
