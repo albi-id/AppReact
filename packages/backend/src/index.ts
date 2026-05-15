@@ -580,40 +580,35 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
   }
 });
 
-
- // ==================== SOLICITAR SERVICIO + MATCHING AUTOMÁTICO ====================
-
-// ==================== SOLICITAR SERVICIO (VERSIÓN DEBUG) ====================
+// ==================== SOLICITAR SERVICIO (VERSIÓN ULTRA SIMPLE PARA DEBUG) ====================
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   console.log("📥 [REQUEST] Endpoint alcanzado");
-  console.log("Body recibido:", req.body);
-  console.log("Usuario:", req.user?.id, "Role:", req.dbUser?.role);
-
-  const { type, pickupLat, pickupLng } = req.body;
+  console.log("Body:", req.body);
+  console.log("User ID:", req.user?.id, "Role:", req.dbUser?.role);
 
   try {
+    const { type, pickupLat, pickupLng } = req.body;
+
     if (req.dbUser.role !== 'USER') {
-      console.log("❌ Rol incorrecto");
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
     if (!type || !pickupLat || !pickupLng) {
-      console.log("❌ Datos incompletos");
-      return res.status(400).json({ error: 'Faltan datos requeridos' });
+      return res.status(400).json({ error: 'type, pickupLat y pickupLng son requeridos' });
     }
 
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
-        type: type as any,
-        pickupLat: parseFloat(pickupLat),
-        pickupLng: parseFloat(pickupLng),
+        type: type,
+        pickupLat: Number(pickupLat),
+        pickupLng: Number(pickupLng),
         status: 'REQUESTED',
         requestedAt: new Date(),
       },
     });
 
-    console.log(`✅ [REQUEST] Servicio creado exitosamente - ID: ${newService.id}`);
+    console.log(`✅ Servicio creado: ${newService.id}`);
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
@@ -621,11 +616,10 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     });
 
     // Matching
-    console.log(`⏳ Iniciando matching para servicio ${newService.id}...`);
-    await matchService(newService.id);
+    setTimeout(() => matchService(newService.id), 500);
 
   } catch (error: any) {
-    console.error("💥 [REQUEST] Error completo:", error);
+    console.error("💥 ERROR en /services/request:", error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
