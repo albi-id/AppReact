@@ -580,27 +580,27 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
   }
 });
 
-// ==================== SOLICITAR SERVICIO (VERSIÓN ULTRA SIMPLE PARA DEBUG) ====================
+// ==================== SOLICITAR SERVICIO + MATCHING ====================
+
+// HU-07: Solicitar servicio
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  console.log("📥 [REQUEST] Endpoint alcanzado");
-  console.log("Body:", req.body);
-  console.log("User ID:", req.user?.id, "Role:", req.dbUser?.role);
+  const { type, pickupLat, pickupLng } = req.body;
+
+  console.log(`📥 [REQUEST] Solicitud recibida - Type: ${type}, Lat: ${pickupLat}, Lng: ${pickupLng}`);
 
   try {
-    const { type, pickupLat, pickupLng } = req.body;
-
     if (req.dbUser.role !== 'USER') {
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
     if (!type || !pickupLat || !pickupLng) {
-      return res.status(400).json({ error: 'type, pickupLat y pickupLng son requeridos' });
+      return res.status(400).json({ error: 'Faltan datos requeridos (type, pickupLat, pickupLng)' });
     }
 
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
-        type: type,
+        type: type as any,
         pickupLat: Number(pickupLat),
         pickupLng: Number(pickupLng),
         status: 'REQUESTED',
@@ -608,40 +608,34 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`✅ Servicio creado: ${newService.id}`);
+    console.log(`✅ [REQUEST] Servicio creado - ID: ${newService.id}`);
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id
     });
 
-    // Matching
-    setTimeout(() => matchService(newService.id), 500);
+    // Matching inmediato
+    console.log(`⏳ Iniciando matching...`);
+    await matchService(newService.id);
 
   } catch (error: any) {
-    console.error("💥 ERROR en /services/request:", error);
+    console.error("💥 [REQUEST] Error:", error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
 
-// ==================== FUNCIÓN INTERNA DE MATCHING (Ultra debug) ====================
+// ==================== MATCHING AUTOMÁTICO ====================
 const matchService = async (serviceId: string) => {
   try {
-    console.log(`🔍 [MATCH] Iniciando matching para servicio: ${serviceId}`);
+    console.log(`🔍 [MATCH] Buscando profesionales para servicio ${serviceId}`);
 
     const service = await prisma.service.findUnique({
-      where: { id: serviceId },
+      where: { id: serviceId }
     });
 
     if (!service) {
-      console.log(`❌ [MATCH] Servicio ${serviceId} no encontrado`);
-      return;
-    }
-
-    console.log(`📋 [MATCH] Estado actual del servicio: ${service.status}`);
-
-    if (service.status !== 'REQUESTED') {
-      console.log(`⚠️ [MATCH] El servicio ya no está en REQUESTED`);
+      console.log(`❌ [MATCH] Servicio no encontrado`);
       return;
     }
 
@@ -649,19 +643,19 @@ const matchService = async (serviceId: string) => {
       where: {
         isActive: true,
         status: 'APPROVED',
-        modalities: { hasSome: ['TIME_BASED'] },
+        modalities: { hasSome: ['TIME_BASED'] }
       },
       include: { user: true }
     });
 
-    console.log(`👥 [MATCH] Profesionales disponibles encontrados: ${professionals.length}`);
+    console.log(`👥 [MATCH] Profesionales encontrados: ${professionals.length}`);
 
     if (professionals.length === 0) {
       await prisma.service.update({
         where: { id: serviceId },
         data: { status: 'CANCELLED' }
       });
-      console.log(`❌ [MATCH] No hay profesionales disponibles → servicio cancelado`);
+      console.log(`❌ [MATCH] No hay profesionales disponibles`);
       return;
     }
 
@@ -680,22 +674,14 @@ const matchService = async (serviceId: string) => {
       .map(pro => {
         const loc = pro.lastLocation as { lat: number; lng: number } | null;
         if (!loc) return { pro, distanceKm: Infinity };
-
-        const distanceKm = getDistance(
-          service.pickupLat!, 
-          service.pickupLng!, 
-          loc.lat, 
-          loc.lng
-        );
+        const distanceKm = getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng);
         return { pro, distanceKm };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
-    console.log(`🏆 [MATCH] Profesional más cercano: ${candidates[0].pro.fullName} (${candidates[0].distanceKm.toFixed(2)} km)`);
-
     const closest = candidates[0].pro;
 
-    const updatedService = await prisma.service.update({
+    await prisma.service.update({
       where: { id: serviceId },
       data: {
         professionalId: closest.userId,
@@ -703,11 +689,10 @@ const matchService = async (serviceId: string) => {
       }
     });
 
-    console.log(`✅ [MATCH] ÉXITO: Servicio ${serviceId} asignado a ${closest.fullName}`);
+    console.log(`🎯 [MATCH] ÉXITO - Asignado a ${closest.fullName}`);
 
   } catch (error: any) {
-    console.error(`💥 [MATCH] Error grave en matchService:`, error.message);
-    console.error(error);
+    console.error(`💥 [MATCH] Error:`, error.message);
   }
 };
 
