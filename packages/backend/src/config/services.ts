@@ -34,6 +34,14 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     basePrice: 100,
    },
 
+    {
+    key: 'INGENIERA',
+     label: 'INGENIERA',
+    pricePerMinute: 40,
+    basePrice: 400,
+   },
+   
+
   // Agrega aquí nuevos servicios fácilmente:
   // {
   //   key: 'AMA_DE_CASA',
