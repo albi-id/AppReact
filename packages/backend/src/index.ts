@@ -582,25 +582,25 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 
 // ==================== SOLICITAR SERVICIO + MATCHING ====================
 
-// HU-07: Solicitar servicio
+// ==================== SOLICITAR SERVICIO (Versión estable) ====================
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng } = req.body;
 
-  console.log(`📥 [REQUEST] Solicitud recibida - Type: ${type}, Lat: ${pickupLat}, Lng: ${pickupLng}`);
-
   try {
+    console.log(`📥 [REQUEST] Recibido - Type: ${type}, Lat: ${pickupLat}, Lng: ${pickupLng}`);
+
     if (req.dbUser.role !== 'USER') {
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
     if (!type || !pickupLat || !pickupLng) {
-      return res.status(400).json({ error: 'Faltan datos requeridos (type, pickupLat, pickupLng)' });
+      return res.status(400).json({ error: 'Faltan datos requeridos' });
     }
 
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
-        type: type as any,
+        type: type,
         pickupLat: Number(pickupLat),
         pickupLng: Number(pickupLng),
         status: 'REQUESTED',
@@ -608,66 +608,71 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`✅ [REQUEST] Servicio creado - ID: ${newService.id}`);
+    console.log(`✅ [REQUEST] Servicio creado ID: ${newService.id}`);
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id
     });
 
-    // Matching inmediato
-    console.log(`⏳ Iniciando matching...`);
-    await matchService(newService.id);
+    // Matching
+    setTimeout(async () => {
+      try {
+        await matchService(newService.id);
+      } catch (e) {
+        console.error("Error en matching background:", e);
+      }
+    }, 700);
 
   } catch (error: any) {
-    console.error("💥 [REQUEST] Error:", error);
+    console.error("💥 Error en /services/request:", error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
-
 // ==================== MATCHING AUTOMÁTICO ====================
 const matchService = async (serviceId: string) => {
   try {
     console.log(`🔍 [MATCH] Iniciando para servicio ${serviceId}`);
 
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
-    if (!service) return console.log(`❌ Servicio no encontrado`);
+    if (!service) return console.log("❌ Servicio no encontrado");
 
+    // Buscamos cualquier profesional activo (sin filtro estricto por ahora)
     const professionals = await prisma.professional.findMany({
       where: {
         isActive: true,
-        status: 'APPROVED',
-        // Quitamos el filtro de modalities temporalmente para probar
-        // modalities: { hasSome: ['TIME_BASED'] }
+        status: 'APPROVED'
       },
       include: { user: true }
     });
 
-    console.log(`👥 Profesionales activos encontrados: ${professionals.length}`);
+    console.log(`👥 [MATCH] Profesionales activos: ${professionals.length}`);
 
     if (professionals.length === 0) {
-      await prisma.service.update({ where: { id: serviceId }, data: { status: 'CANCELLED' }});
-      return console.log(`❌ No hay profesionales`);
+      await prisma.service.update({
+        where: { id: serviceId },
+        data: { status: 'CANCELLED' }
+      });
+      return console.log("❌ No hay profesionales");
     }
 
-    // Tomamos el primero (para debug)
-    const closest = professionals[0];
+    // Tomamos el primero (para testing)
+    const selected = professionals[0];
 
     await prisma.service.update({
       where: { id: serviceId },
       data: {
-        professionalId: closest.userId,
+        professionalId: selected.userId,
         status: 'OFFERED',
       }
     });
 
-    console.log(`🎯 ASIGNADO exitosamente a ${closest.fullName} (${closest.userId})`);
+    console.log(`🎯 [MATCH] ÉXITO - Asignado a ${selected.fullName} (${selected.userId})`);
 
   } catch (error: any) {
-    console.error(`💥 Error en matchService:`, error.message);
+    console.error(`💥 [MATCH] Error:`, error.message);
   }
 };
-
 // =============================================
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
