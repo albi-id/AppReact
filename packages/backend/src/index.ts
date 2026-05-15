@@ -790,6 +790,7 @@ app.get('/professionals/:id', async (req: any, res: any) => {
 });
 
 // HU-23: Registro como Prestador de Servicios 
+// HU-23: Registro como Prestador de Servicios 
 app.post('/professionals/register', authenticate, async (req: any, res: any) => {
   const { 
     fullName, 
@@ -800,7 +801,7 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     dniFrontUrl, 
     dniBackUrl, 
     certificateUrl,
-    modalities   // ← Nuevo campo (array)
+    modalities 
   } = req.body;
 
   try {
@@ -809,20 +810,7 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     }
 
     if (!fullName || !profession || !phone || !modalities || modalities.length === 0) {
-      return res.status(400).json({ 
-        error: 'Nombre, profesión, teléfono y al menos una modalidad son obligatorios' 
-      });
-    }
-
-    if (!dniFrontUrl || !dniBackUrl || !certificateUrl) {
-      return res.status(400).json({ error: 'Debes subir los 3 documentos requeridos' });
-    }
-
-    // Validar que las modalidades sean válidas
-    const validModalities = ['TIME_BASED', 'FIXED_PRICE'];
-    const invalid = modalities.filter((m: string) => !validModalities.includes(m));
-    if (invalid.length > 0) {
-      return res.status(400).json({ error: `Modalidades inválidas: ${invalid.join(', ')}` });
+      return res.status(400).json({ error: 'Nombre, profesión, teléfono y modalidad son obligatorios' });
     }
 
     const professional = await prisma.professional.create({
@@ -836,22 +824,23 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         dniFrontUrl,
         dniBackUrl,
         certificateUrl,
-        modalities,           // ← Guardamos el array
+        modalities: modalities || ['TIME_BASED'],   // Default seguro
         isActive: false,
         status: 'PENDING',
+        vehicleType: profession,   // ← Guardamos la profesión también aquí
       }
     });
 
-    console.log(`📋 Nueva solicitud de prestador: ${fullName} - Modalidades: ${modalities.join(', ')}`);
+    console.log(`📋 Nueva solicitud: ${fullName} - ${profession} - Modalidades: ${modalities}`);
 
     res.status(201).json({
-      message: 'Solicitud enviada correctamente. Será revisada por un administrador.',
+      message: 'Solicitud enviada correctamente. Pendiente de aprobación.',
       professionalId: professional.id
     });
 
   } catch (error: any) {
     console.error('Error al registrar prestador:', error);
-    res.status(500).json({ error: 'Error interno al enviar la solicitud' });
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
