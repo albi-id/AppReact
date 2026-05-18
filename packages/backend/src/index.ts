@@ -577,23 +577,20 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
   }
 });
  
-// ==================== SOLICITAR SERVICIO - VERSIÓN DEFINITIVA ====================
+// ==================== SOLICITAR SERVICIO - VERSIÓN SIMPLE Y ROBUSTA ====================
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  console.log("🚀 [REQUEST] ENDPOINT ALCANZADO");
-  console.log("Body recibido:", req.body);
-  console.log("Usuario:", req.user?.id, "Role:", req.dbUser?.role);
-
   const { type, pickupLat, pickupLng } = req.body;
+
+  console.log("🚀 [REQUEST] Endpoint alcanzado");
+  console.log("Body:", req.body);
 
   try {
     if (req.dbUser.role !== 'USER') {
-      console.log("❌ Rol no autorizado");
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
     if (!type || !pickupLat || !pickupLng) {
-      console.log("❌ Datos incompletos");
-      return res.status(400).json({ error: 'type, pickupLat y pickupLng son obligatorios' });
+      return res.status(400).json({ error: 'Datos incompletos' });
     }
 
     // Crear el servicio
@@ -608,65 +605,46 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`✅ [REQUEST] Servicio creado correctamente - ID: ${newService.id}`);
+    console.log(`✅ Servicio creado ID: ${newService.id}`);
+
+    // === ASIGNACIÓN DIRECTA SIMPLE ===
+    const professionals = await prisma.professional.findMany({
+      where: {
+        isActive: true,
+        status: 'APPROVED'
+      },
+      take: 5
+    });
+
+    console.log(`👥 Profesionales encontrados: ${professionals.length}`);
+
+    if (professionals.length > 0) {
+      const selected = professionals[0]; // Tomamos el primero por ahora
+
+      await prisma.service.update({
+        where: { id: newService.id },
+        data: {
+          professionalId: selected.userId,
+          status: 'OFFERED',
+        }
+      });
+
+      console.log(`🎯 ASIGNADO DIRECTAMENTE a profesional: ${selected.userId} (${selected.fullName})`);
+    } else {
+      console.log("❌ No hay profesionales disponibles");
+    }
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id
     });
 
-    // Matching inmediato
-    console.log(`⏳ Iniciando matching...`);
-    await matchService(newService.id);
-
   } catch (error: any) {
-    console.error("💥 [REQUEST] ERROR GRAVE:", error);
+    console.error("💥 ERROR GRAVE en /services/request:", error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
-// ==================== MATCHING AUTOMÁTICO ====================
-const matchService = async (serviceId: string) => {
-  try {
-    console.log(`🔍 [MATCH] Iniciando para servicio ${serviceId}`);
 
-    const service = await prisma.service.findUnique({ where: { id: serviceId } });
-    if (!service) return console.log("❌ Servicio no encontrado");
-
-    // Buscamos CUALQUIER profesional aprobado y activo (sin filtros estrictos)
-    const professionals = await prisma.professional.findMany({
-      where: {
-        isActive: true,
-        status: 'APPROVED'
-      }
-    });
-
-    console.log(`👥 [MATCH] Profesionales encontrados: ${professionals.length}`);
-
-    if (professionals.length === 0) {
-      await prisma.service.update({
-        where: { id: serviceId },
-        data: { status: 'CANCELLED' }
-      });
-      return console.log("❌ No hay profesionales");
-    }
-
-    // Tomamos el primero (para testing)
-    const selectedProfessional = professionals[0];
-
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: {
-        professionalId: selectedProfessional.userId,
-        status: 'OFFERED',
-      }
-    });
-
-    console.log(`🎯 [MATCH] ÉXITO - Asignado profesional ID: ${selectedProfessional.userId}`);
-
-  } catch (error: any) {
-    console.error(`💥 [MATCH] Error:`, error.message);
-  }
-};
 // =============================================
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
