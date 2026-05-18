@@ -578,11 +578,13 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 });
  
 // ==================== SOLICITAR SERVICIO - VERSIÓN SIMPLE Y ROBUSTA ====================
+// ==================== SOLICITAR SERVICIO - VERSIÓN FINAL CORREGIDA ====================
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng } = req.body;
 
   console.log("🚀 [REQUEST] Endpoint alcanzado");
-  console.log("Body:", req.body);
+  console.log("Body recibido:", req.body);
+  console.log("Usuario:", req.user?.id, "Role:", req.dbUser?.role);
 
   try {
     if (req.dbUser.role !== 'USER') {
@@ -590,7 +592,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     }
 
     if (!type || !pickupLat || !pickupLng) {
-      return res.status(400).json({ error: 'Datos incompletos' });
+      return res.status(400).json({ error: 'type, pickupLat y pickupLng son obligatorios' });
     }
 
     // Crear el servicio
@@ -605,42 +607,46 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`✅ Servicio creado ID: ${newService.id}`);
-
-    // === ASIGNACIÓN DIRECTA SIMPLE ===
-    const professionals = await prisma.professional.findMany({
-      where: {
-        isActive: true,
-        status: 'APPROVED'
-      },
-      take: 5
-    });
-
-    console.log(`👥 Profesionales encontrados: ${professionals.length}`);
-
-    if (professionals.length > 0) {
-      const selected = professionals[0]; // Tomamos el primero por ahora
-
-      await prisma.service.update({
-        where: { id: newService.id },
-        data: {
-          professionalId: selected.userId,
-          status: 'OFFERED',
-        }
-      });
-
-      console.log(`🎯 ASIGNADO DIRECTAMENTE a profesional: ${selected.userId} (${selected.fullName})`);
-    } else {
-      console.log("❌ No hay profesionales disponibles");
-    }
+    console.log(`✅ [REQUEST] Servicio creado correctamente - ID: ${newService.id}`);
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id
     });
 
+    // ASIGNACIÓN DIRECTA
+    try {
+      const professionals = await prisma.professional.findMany({
+        where: {
+          isActive: true,
+          status: 'APPROVED'
+        },
+        take: 5
+      });
+
+      console.log(`👥 [MATCH] Profesionales encontrados: ${professionals.length}`);
+
+      if (professionals.length > 0) {
+        const selected = professionals[0];
+
+        await prisma.service.update({
+          where: { id: newService.id },
+          data: {
+            professionalId: selected.userId,
+            status: 'OFFERED',
+          }
+        });
+
+        console.log(`🎯 [MATCH] ÉXITO - Asignado a: ${selected.fullName} (${selected.userId})`);
+      } else {
+        console.log("⚠️ [MATCH] No hay profesionales disponibles");
+      }
+    } catch (matchError) {
+      console.error("💥 Error durante el matching:", matchError);
+    }
+
   } catch (error: any) {
-    console.error("💥 ERROR GRAVE en /services/request:", error);
+    console.error("💥 [REQUEST] Error grave:", error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
