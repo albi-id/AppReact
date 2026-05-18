@@ -120,14 +120,27 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
     }
 
     const services = await prisma.service.findMany({
-      where: { professionalId: req.user.id },
+      where: { 
+        professionalId: req.user.id,
+        // Incluimos los estados más importantes para que aparezcan inmediatamente
+        status: { 
+          in: ['OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED'] 
+        }
+      },
       include: {
         requester: {
-          select: { id: true, firstName: true, lastName: true, email: true }
+          select: { 
+            id: true, 
+            firstName: true, 
+            lastName: true, 
+            email: true 
+          }
         }
       },
       orderBy: { requestedAt: 'desc' },
     });
+
+    console.log(`📋 Profesional ${req.user.id} tiene ${services.length} servicios`);
 
     res.json({
       message: 'Mis servicios como profesional',
