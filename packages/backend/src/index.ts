@@ -140,8 +140,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
 });
   
 // ==================== OTRAS RUTAS IMPORTANTES ====================
-
-// HU-04: Perfil conductor
+ 
 // HU-04: Registro como Profesional (anteriormente Driver)
 app.post('/driver/profile', authenticate, async (req: any, res: any) => {
   const { vehicleType, profession } = req.body;
@@ -450,8 +449,7 @@ app.post('/services/:serviceId/rate', authenticate, async (req: any, res: any) =
     res.status(500).json({ error: 'Error interno al calificar' });
   }
 });
-
-// HU-05: Activar/desactivar disponibilidad (En Línea)
+ 
 // HU-05: Activar/desactivar disponibilidad (En Línea) - Adaptado a Professional
 app.patch('/professional/availability', authenticate, async (req: any, res: any) => {
   const { isOnline } = req.body;
@@ -503,8 +501,7 @@ app.patch('/professional/availability', authenticate, async (req: any, res: any)
       res.status(500).json({ error: 'Error interno' });
     }
   }
-});
-
+}); 
 
 // HU-04: Obtener / Crear perfil de Profesional
 app.get('/professional/profile', authenticate, async (req: any, res: any) => {
@@ -579,28 +576,31 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
     res.status(500).json({ error: 'Error interno al actualizar ubicación' });
   }
 });
-
-// ==================== SOLICITAR SERVICIO + MATCHING ====================
-
-// ==================== SOLICITAR SERVICIO (Versión estable) ====================
+ 
+// ==================== SOLICITAR SERVICIO - VERSIÓN DEFINITIVA ====================
 app.post('/services/request', authenticate, async (req: any, res: any) => {
+  console.log("🚀 [REQUEST] ENDPOINT ALCANZADO");
+  console.log("Body recibido:", req.body);
+  console.log("Usuario:", req.user?.id, "Role:", req.dbUser?.role);
+
   const { type, pickupLat, pickupLng } = req.body;
 
   try {
-    console.log(`📥 [REQUEST] Recibido - Type: ${type}, Lat: ${pickupLat}, Lng: ${pickupLng}`);
-
     if (req.dbUser.role !== 'USER') {
+      console.log("❌ Rol no autorizado");
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
     if (!type || !pickupLat || !pickupLng) {
-      return res.status(400).json({ error: 'Faltan datos requeridos' });
+      console.log("❌ Datos incompletos");
+      return res.status(400).json({ error: 'type, pickupLat y pickupLng son obligatorios' });
     }
 
+    // Crear el servicio
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
-        type: type,
+        type: type as any,
         pickupLat: Number(pickupLat),
         pickupLng: Number(pickupLng),
         status: 'REQUESTED',
@@ -608,24 +608,19 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       },
     });
 
-    console.log(`✅ [REQUEST] Servicio creado ID: ${newService.id}`);
+    console.log(`✅ [REQUEST] Servicio creado correctamente - ID: ${newService.id}`);
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id
     });
 
-    // Matching
-    setTimeout(async () => {
-      try {
-        await matchService(newService.id);
-      } catch (e) {
-        console.error("Error en matching background:", e);
-      }
-    }, 700);
+    // Matching inmediato
+    console.log(`⏳ Iniciando matching...`);
+    await matchService(newService.id);
 
   } catch (error: any) {
-    console.error("💥 Error en /services/request:", error);
+    console.error("💥 [REQUEST] ERROR GRAVE:", error);
     res.status(500).json({ error: 'Error interno al solicitar servicio' });
   }
 });
@@ -637,16 +632,15 @@ const matchService = async (serviceId: string) => {
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
     if (!service) return console.log("❌ Servicio no encontrado");
 
-    // Buscamos cualquier profesional activo (sin filtro estricto por ahora)
+    // Buscamos CUALQUIER profesional aprobado y activo (sin filtros estrictos)
     const professionals = await prisma.professional.findMany({
       where: {
         isActive: true,
         status: 'APPROVED'
-      },
-      include: { user: true }
+      }
     });
 
-    console.log(`👥 [MATCH] Profesionales activos: ${professionals.length}`);
+    console.log(`👥 [MATCH] Profesionales encontrados: ${professionals.length}`);
 
     if (professionals.length === 0) {
       await prisma.service.update({
@@ -657,17 +651,17 @@ const matchService = async (serviceId: string) => {
     }
 
     // Tomamos el primero (para testing)
-    const selected = professionals[0];
+    const selectedProfessional = professionals[0];
 
     await prisma.service.update({
       where: { id: serviceId },
       data: {
-        professionalId: selected.userId,
+        professionalId: selectedProfessional.userId,
         status: 'OFFERED',
       }
     });
 
-    console.log(`🎯 [MATCH] ÉXITO - Asignado a ${selected.fullName} (${selected.userId})`);
+    console.log(`🎯 [MATCH] ÉXITO - Asignado profesional ID: ${selectedProfessional.userId}`);
 
   } catch (error: any) {
     console.error(`💥 [MATCH] Error:`, error.message);
