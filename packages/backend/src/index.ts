@@ -366,7 +366,7 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
     }
 
     const professional = await prisma.professional.findUnique({
-      where: { userId: req.user.id }
+      where: { userId: req.users.id }
     });
 
     if (!professional) {
