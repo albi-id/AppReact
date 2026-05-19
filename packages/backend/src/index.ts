@@ -871,6 +871,53 @@ app.patch('/professionals/:id/status', authenticate, async (req: any, res: any) 
   }
 });
 
+// HU-25: Finalizar servicio por presupuesto (usuario ingresa monto)
+app.patch('/services/:serviceId/finish-fixed', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+  const { amount } = req.body;   // Monto ingresado por el usuario
+
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Solo el solicitante puede ingresar el monto final' });
+    }
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      include: { professional: true }
+    });
+
+    if (!service || service.status !== 'ARRIVED') {
+      return res.status(403).json({ error: 'Acción no permitida' });
+    }
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Debes ingresar un monto válido' });
+    }
+
+    const updated = await prisma.service.update({
+      where: { id: serviceId },
+      data: { 
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        amount: Number(amount)
+      }
+    });
+
+    console.log(`💰 Servicio por presupuesto finalizado - Monto: ${amount} ARS`);
+
+    res.json({ 
+      message: 'Servicio finalizado correctamente',
+      service: updated,
+      importe: amount 
+    });
+  } catch (error: any) {
+    console.error('Error en finish-fixed:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
