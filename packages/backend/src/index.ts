@@ -113,18 +113,30 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
 });
 
 // HU-12: Mis servicios como profesional (para PROFESSIONAL)
+// HU-12: Mis servicios como profesional (CORREGIDO)
 app.get('/services/professional/my', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
       return res.status(403).json({ error: 'Solo profesionales pueden ver sus servicios' });
     }
 
+    // Buscamos primero el registro en la tabla Professional
+    const professional = await prisma.professional.findUnique({
+      where: { userId: req.user.id }
+    });
+
+    if (!professional) {
+      return res.json({
+        message: 'Mis servicios como profesional',
+        services: []
+      });
+    }
+
     const services = await prisma.service.findMany({
       where: { 
-        professionalId: req.user.id,
-        // Traemos todos los estados relevantes
+        professionalId: professional.id,           // ← CORREGIDO: usamos professional.id
         status: { 
-          in: ['OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED', 'REJECTED'] 
+          in: ['OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED'] 
         }
       },
       include: {
@@ -135,7 +147,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
       orderBy: { requestedAt: 'desc' },
     });
 
-    console.log(`📋 Profesional ${req.user.id} - Servicios encontrados: ${services.length}`);
+    console.log(`📋 Profesional ${req.user.id} (Professional ID: ${professional.id}) - Servicios: ${services.length}`);
 
     res.json({
       message: 'Mis servicios como profesional',
@@ -199,35 +211,37 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
   const { serviceId } = req.params;
 
   try {
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      include: { professional: true }
-    });
-
-    if (!service || !service.professional) {
-      return res.status(403).json({ error: 'Servicio no encontrado' });
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden aceptar' });
     }
 
-    // Corrección importante: comparar contra el userId del profesional
-    if (service.professional.userId !== req.user.id || service.status !== 'OFFERED') {
+    const professional = await prisma.professional.findUnique({
+      where: { userId: req.user.id }
+    });
+
+    if (!professional) {
+      return res.status(404).json({ error: 'Perfil profesional no encontrado' });
+    }
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId }
+    });
+
+    if (!service || service.professionalId !== professional.id || service.status !== 'OFFERED') {
       return res.status(403).json({ error: 'No puedes aceptar este servicio' });
     }
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
       data: { 
-        status: 'ACCEPTED', 
-        acceptedAt: new Date() 
+        status: 'ACCEPTED',
+        acceptedAt: new Date()
       }
     });
 
-    res.json({ 
-      message: 'Oferta aceptada correctamente', 
-      service: updated 
-    });
-
+    res.json({ message: 'Servicio aceptado', service: updated });
   } catch (error: any) {
-    console.error('Error en /accept:', error);
+    console.error('Error al aceptar servicio:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -241,175 +255,140 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       return res.status(403).json({ error: 'Solo profesionales pueden rechazar' });
     }
 
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      include: { professional: true }
+    const professional = await prisma.professional.findUnique({
+      where: { userId: req.user.id }
     });
 
-    if (!service || !service.professional || service.professional.userId !== req.user.id || service.status !== 'OFFERED') {
+    if (!professional) return res.status(404).json({ error: 'Perfil profesional no encontrado' });
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId }
+    });
+
+    if (!service || service.professionalId !== professional.id || service.status !== 'OFFERED') {
       return res.status(403).json({ error: 'No puedes rechazar este servicio' });
     }
 
-    // Marcar como rechazado y liberar
+    // Marcar como rechazado
     await prisma.service.update({
       where: { id: serviceId },
-      data: { 
-        status: 'REJECTED', 
-        professionalId: null 
-      },
+      data: { status: 'REJECTED', professionalId: null }
     });
 
-    console.log(`🚫 Profesional ${req.user.id} rechazó servicio ${serviceId}`);
-
-    // Buscar siguientes profesionales (excluyendo al actual)
+    // Buscar siguiente profesional más cercano
     const professionals = await prisma.professional.findMany({
       where: {
         isActive: true,
         status: 'APPROVED',
         modalities: { hasSome: ['TIME_BASED'] },
-        id: { not: service.professionalId! }   // ← Usamos ! porque ya validamos que existe
+        id: { not: professional.id }
       },
-      include: { user: true },
+      include: { user: true }
     });
 
     if (professionals.length === 0) {
-      return res.json({ 
-        message: 'Oferta rechazada. No hay más profesionales disponibles.', 
-        status: 'REJECTED' 
-      });
+      return res.json({ message: 'Oferta rechazada. No hay más profesionales disponibles.' });
     }
 
-    // Función Haversine
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    // Ordenar por cercanía (Haversine)
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
       const R = 6371;
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLon = ((lon2 - lon1) * Math.PI) / 180;
-      const a = Math.sin(dLat / 2) ** 2 + 
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-                Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     };
 
     const candidates = professionals
-      .map(pro => {
-        const loc = pro.lastLocation as { lat: number; lng: number } | null;
-        if (!loc) return { professional: pro, distanceKm: Infinity };
-        const distanceKm = getDistance(
-          service.pickupLat!, 
-          service.pickupLng!, 
-          loc.lat, 
-          loc.lng
-        );
-        return { professional: pro, distanceKm };
+      .map(p => {
+        const loc = p.lastLocation as any;
+        const distance = loc ? getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng) : Infinity;
+        return { professional: p, distance };
       })
-      .sort((a, b) => a.distanceKm - b.distanceKm);
+      .sort((a, b) => a.distance - b.distance);
 
-    const nextProfessional = candidates[0].professional;
+    const next = candidates[0].professional;
 
-    const updatedService = await prisma.service.update({
+    const updated = await prisma.service.update({
       where: { id: serviceId },
-      data: {
-        professionalId: nextProfessional.id,     // ← Correcto
-        status: 'OFFERED',
-      },
+      data: { professionalId: next.id, status: 'OFFERED' }
     });
-
-    console.log(`🔄 Reasignado a ${nextProfessional.fullName}`);
 
     res.json({
       message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
-      nextProfessionalId: nextProfessional.id,
-      distanceKm: candidates[0].distanceKm.toFixed(2),
-      status: 'OFFERED'
+      nextProfessionalId: next.id,
+      distanceKm: candidates[0].distance.toFixed(2)
     });
 
   } catch (error: any) {
-    console.error('Error al rechazar servicio:', error);
-    res.status(500).json({ error: 'Error interno al rechazar' });
+    console.error('Error al rechazar:', error);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
+
 
 app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
   try {
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      include: { professional: true }   // ← Agregamos include para mayor seguridad
-    });
-
-    if (!service || !service.professional) {
-      return res.status(403).json({ error: 'Servicio no encontrado' });
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden marcar llegada' });
     }
 
-    // Corrección: Comparar contra el userId del profesional
-    if (service.professional.userId !== req.user.id || service.status !== 'ACCEPTED') {
+    const professional = await prisma.professional.findUnique({ where: { userId: req.user.id } });
+    if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+
+    if (!service || service.professionalId !== professional.id || service.status !== 'ACCEPTED') {
+      return res.status(403).json({ error: 'Acción no permitida' });
+    }
+
+    const updated = await prisma.service.update({
+      where: { id: serviceId },
+      data: { status: 'ARRIVED', arrivedAt: new Date() }
+    });
+
+    res.json({ message: 'Llegada marcada', service: updated });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+
+// HU-13: Finalizar servicio + cálculo de importe (adaptado a Professional)
+app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+
+  try {
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden finalizar' });
+    }
+
+    const professional = await prisma.professional.findUnique({ where: { userId: req.user.id } });
+    if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+
+    if (!service || service.professionalId !== professional.id || service.status !== 'ARRIVED') {
       return res.status(403).json({ error: 'Acción no permitida' });
     }
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
       data: { 
-        status: 'ARRIVED', 
-        arrivedAt: new Date() 
-      }
-    });
-
-    res.json({ message: 'Llegada marcada correctamente', service: updated });
-  } catch (error: any) {
-    console.error('Error en /arrive:', error);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
-// HU-13: Finalizar servicio + cálculo de importe (adaptado a Professional)
-app.patch('/services/:serviceId/finish-wait', authenticate, async (req: any, res: any) => {
-  const { serviceId } = req.params;
-
-  try {
-    if (!['PROFESSIONAL', 'DRIVER'].includes(req.dbUser.role)) {
-      return res.status(403).json({ error: 'Solo profesionales pueden finalizar el servicio' });
-    }
-
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-    });
-
-    if (!service || service.professionalId !== req.user.id || service.status !== 'ARRIVED') {
-      return res.status(403).json({ error: 'No puedes finalizar este servicio' });
-    }
-
-    const config = getServiceConfig(service.type);
-
-    const waitMinutes = service.arrivedAt 
-      ? Math.round((new Date().getTime() - service.arrivedAt.getTime()) / 60000)
-      : 5;
-
-    const amount = Math.max(config.basePrice, waitMinutes * config.pricePerMinute);
-
-    const updated = await prisma.service.update({
-      where: { id: serviceId },
-      data: { 
         status: 'COMPLETED',
         completedAt: new Date(),
-        amount 
+        amount: service.amount || 100 // temporal, luego calcularemos
       }
     });
 
-    res.json({ 
-      message: 'Servicio finalizado correctamente',
-      service: updated,
-      importe: amount,
-      tiempoEsperaMin: waitMinutes
-    });
-
+    res.json({ message: 'Servicio finalizado', service: updated });
   } catch (error: any) {
-    console.error('Error al finalizar servicio:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
- 
+
 // HU-14: Calificar servicio (Usuario)
 app.post('/services/:serviceId/rate', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
