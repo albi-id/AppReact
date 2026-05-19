@@ -365,13 +365,33 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
       return res.status(403).json({ error: 'Solo profesionales pueden finalizar' });
     }
 
-    const professional = await prisma.professional.findUnique({ where: { userId: req.user.id } });
-    if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
+    const professional = await prisma.professional.findUnique({
+      where: { userId: req.user.id }
+    });
 
-    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!professional) {
+      return res.status(404).json({ error: 'Perfil profesional no encontrado' });
+    }
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId }
+    });
 
     if (!service || service.professionalId !== professional.id || service.status !== 'ARRIVED') {
-      return res.status(403).json({ error: 'Acción no permitida' });
+      return res.status(403).json({ error: 'Acción no permitida en este servicio' });
+    }
+
+    // Calcular importe real usando services.ts
+    let amount = 100; // fallback
+    try {
+      const config = getServiceConfig(service.type);
+      const minutesWorked = service.arrivedAt 
+        ? Math.max(5, Math.round((new Date().getTime() - service.arrivedAt.getTime()) / 60000))
+        : 10;
+
+      amount = Math.max(config.basePrice, Math.round(minutesWorked * config.pricePerMinute));
+    } catch (e) {
+      console.log('Usando importe por defecto');
     }
 
     const updated = await prisma.service.update({
@@ -379,13 +399,20 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
       data: { 
         status: 'COMPLETED',
         completedAt: new Date(),
-        amount: service.amount || 100 // temporal, luego calcularemos
+        amount
       }
     });
 
-    res.json({ message: 'Servicio finalizado', service: updated });
+    console.log(`✅ Servicio ${serviceId} finalizado. Importe: ${amount} ARS`);
+
+    res.json({ 
+      message: 'Servicio finalizado correctamente', 
+      service: updated,
+      importe: amount 
+    });
   } catch (error: any) {
-    res.status(500).json({ error: 'Error interno' });
+    console.error('Error al finalizar servicio:', error);
+    res.status(500).json({ error: 'Error interno al finalizar' });
   }
 });
 
