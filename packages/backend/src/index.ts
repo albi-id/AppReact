@@ -116,31 +116,26 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
 app.get('/services/professional/my', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
-      return res.status(403).json({ error: 'Solo profesionales pueden ver sus servicios asignados' });
+      return res.status(403).json({ error: 'Solo profesionales pueden ver sus servicios' });
     }
 
     const services = await prisma.service.findMany({
       where: { 
         professionalId: req.user.id,
-        // Incluimos los estados más importantes para que aparezcan inmediatamente
+        // Traemos todos los estados relevantes
         status: { 
-          in: ['OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED'] 
+          in: ['OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED', 'REJECTED'] 
         }
       },
       include: {
         requester: {
-          select: { 
-            id: true, 
-            firstName: true, 
-            lastName: true, 
-            email: true 
-          }
+          select: { id: true, firstName: true, lastName: true, email: true }
         }
       },
       orderBy: { requestedAt: 'desc' },
     });
 
-    console.log(`📋 Profesional ${req.user.id} tiene ${services.length} servicios`);
+    console.log(`📋 Profesional ${req.user.id} - Servicios encontrados: ${services.length}`);
 
     res.json({
       message: 'Mis servicios como profesional',
