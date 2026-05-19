@@ -9,27 +9,27 @@ export type ServiceTypeConfig = {
 
 export const SERVICE_TYPES: ServiceTypeConfig[] = [
   {
-    key: 'MOTO',
-    label: 'Moto',
+    key: 'CORTADOR_PASTO',
+    label: 'CORTADOR_PASTO',
     pricePerMinute: 8,
     basePrice: 50,
   },
   {
-    key: 'TAXI',
-    label: 'Taxi',
+    key: 'ASADOR',
+    label: 'ASADOR',
     pricePerMinute: 12,
     basePrice: 80,
   },
   {
-    key: 'TRAFIC',
-    label: 'Tráfic',
+    key: 'LIMPIEZA',
+    label: 'LIMPIEZA',
     pricePerMinute: 25,
     basePrice: 150,
   },
   
   {
-    key: 'AMA_DE_CASA',
-     label: 'Ama de Casa',
+    key: 'MUDANZA',
+     label: 'MUDANZA',
     pricePerMinute: 15,
     basePrice: 100,
    },
@@ -40,7 +40,13 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     pricePerMinute: 40,
     basePrice: 400,
    },
-   
+   {
+  key: 'ELECTRICISTA',           // ← Clave única en mayúsculas
+  label: 'ELECTRICISTA',         // ← Nombre bonito para mostrar
+  basePrice: 70,                  // No se usa en fixed price
+  pricePerMinute: 70,             // No se usa en fixed price
+},
+
 
   // Agrega aquí nuevos servicios fácilmente:
   // {
