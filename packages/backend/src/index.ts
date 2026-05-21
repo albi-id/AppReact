@@ -430,6 +430,7 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any
 });
 
 // HU-13: Finalizar servicio + cálculo de importe (adaptado a Professional)
+// HU-24: Finalizar servicio (Profesional)
 app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
@@ -462,7 +463,24 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
       return res.status(403).json({ error: 'El servicio debe estar en estado ARRIVED para finalizar' });
     }
 
-    // Calcular importe
+    // ==================== DETECCIÓN DE TIPO DE SERVICIO ====================
+    const serviceConfig = SERVICE_TYPES.find(s => s.key === service.type);
+    const isFixedPrice = serviceConfig && 
+                        serviceConfig.pricePerMinute === 0 && 
+                        serviceConfig.basePrice === 0;
+
+    // ====================== SERVICIO POR PRESUPUESTO ======================
+    if (isFixedPrice) {
+      console.log(`⏳ [FINISH] Servicio por presupuesto #${serviceId} marcado como finalizado por profesional. Esperando monto del cliente.`);
+
+      return res.json({ 
+        message: 'Trabajo finalizado. Se ha notificado al cliente para que ingrese el monto acordado.',
+        isFixedPrice: true,
+        status: 'ARRIVED'   // Mantenemos el estado
+      });
+    }
+
+    // ====================== SERVICIO POR TIEMPO ======================
     let amount = 100; // fallback
     try {
       const config = getServiceConfig(service.type);
@@ -484,7 +502,7 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
       }
     });
 
-    console.log(`✅ [FINISH] Servicio ${serviceId} finalizado por ${professional.fullName} | Importe: $${amount} ARS`);
+    console.log(`✅ [FINISH] Servicio por tiempo #${serviceId} finalizado por ${professional.fullName} | Importe: $${amount} ARS`);
 
     res.json({ 
       message: 'Servicio finalizado correctamente', 
