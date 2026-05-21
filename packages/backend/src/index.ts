@@ -1030,47 +1030,48 @@ app.patch('/services/:serviceId/finish-fixed', authenticate, async (req: any, re
   const { amount } = req.body;
 
   try {
-    if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Solo el solicitante puede finalizar con monto' });
+    if (req.dbUser.role !== 'USER') {                    // ← Esta línea es crítica
+      return res.status(403).json({ error: 'Solo el solicitante puede ingresar el monto' });
     }
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
-      include: { professional: true }
+      include: { professional: true, requester: true }
     });
 
-    if (!service) {
-      return res.status(404).json({ error: 'Servicio no encontrado' });
+    if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+
+    if (service.requesterId !== req.user.id) {
+      return res.status(403).json({ error: 'No puedes modificar este servicio' });
     }
 
-    if (service.status !== 'ARRIVED') {
-      return res.status(403).json({ error: 'El servicio debe estar en estado ARRIVED' });
+    if (service.status !== 'COMPLETED') {               // ← Cambiado a COMPLETED
+      return res.status(403).json({ error: 'El servicio debe estar en estado COMPLETED' });
     }
 
     if (!amount || Number(amount) <= 0) {
-      return res.status(400).json({ error: 'Debes ingresar un monto válido mayor a 0' });
+      return res.status(400).json({ error: 'Monto inválido' });
     }
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
       data: { 
-        status: 'COMPLETED',
-        completedAt: new Date(),
-        amount: Number(amount)
+        amount: Number(amount),
+        // status ya está en COMPLETED
       }
     });
 
-    console.log(`💰 [FINISH-FIXED] Servicio ${serviceId} finalizado por presupuesto | Monto: $${amount} ARS | Profesional: ${service.professional?.fullName}`);
+    console.log(`💰 [FINISH-FIXED] Monto ingresado: $${amount} para servicio ${serviceId}`);
 
-    res.json({ 
-      message: 'Servicio finalizado correctamente',
+    res.json({
+      message: 'Monto registrado correctamente',
       service: updated,
-      importe: Number(amount) 
+      importe: Number(amount)
     });
 
   } catch (error: any) {
     console.error('💥 [FINISH-FIXED] Error:', error);
-    res.status(500).json({ error: 'Error interno al finalizar el servicio' });
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
