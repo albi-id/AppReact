@@ -899,7 +899,7 @@ app.get('/professionals/:id', async (req: any, res: any) => {
       where: { id },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true }
+          select: { id: true, firstName: true, lastName: true }
         }
       }
     });
@@ -908,11 +908,41 @@ app.get('/professionals/:id', async (req: any, res: any) => {
       return res.status(404).json({ error: 'Profesional no encontrado' });
     }
 
+    // Obtener todas las reseñas (reviews) de los servicios completados
+    const reviews = await prisma.service.findMany({
+      where: {
+        professionalId: id,
+        rating: { not: null },        // Solo servicios calificados
+        status: 'COMPLETED'
+      },
+      include: {
+        requester: {
+          select: { 
+            firstName: true, 
+            lastName: true 
+          }
+        }
+      },
+      orderBy: { completedAt: 'desc' },
+      take: 15
+    });
+
     res.json({
       message: 'Detalle del profesional',
-      professional
+      professional,
+      reviews: reviews.map(r => ({
+        id: r.id,
+        rating: r.rating,
+        review: r.review,
+        requesterName: r.requester 
+          ? `${r.requester.firstName} ${r.requester.lastName}`.trim() 
+          : 'Cliente anónimo',
+        date: r.completedAt
+      }))
     });
+
   } catch (error: any) {
+    console.error('Error al obtener profesional:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
