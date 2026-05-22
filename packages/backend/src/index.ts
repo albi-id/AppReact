@@ -1113,6 +1113,115 @@ app.patch('/services/:serviceId/finish-fixed', authenticate, async (req: any, re
   }
 });
 
+// ==================== CHAT ====================
+ 
+// Enviar mensaje en un servicio
+app.post('/services/:serviceId/messages', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+  const { content } = req.body;
+
+  try {
+    if (!content?.trim()) {
+      return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
+    }
+
+    // Traemos el servicio CON las relaciones necesarias
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      include: {
+        professional: true,     // ← Necesario para verificar
+        requester: true         // ← Necesario para verificar
+      }
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: 'Servicio no encontrado' });
+    }
+
+    // Verificar que el usuario sea parte del servicio (requester o professional)
+    const isRequester = service.requesterId === req.user.id;
+    const isProfessional = service.professional?.userId === req.user.id;
+
+    if (!isRequester && !isProfessional) {
+      return res.status(403).json({ error: 'No tienes permiso para chatear en este servicio' });
+    }
+
+    const message = await prisma.message.create({
+      data: {
+        serviceId,
+        senderId: req.user.id,
+        receiverId: isRequester 
+          ? service.professional!.userId 
+          : service.requesterId,
+        content: content.trim()
+      },
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      }
+    });
+
+    console.log(`💬 [MESSAGE] Mensaje enviado en servicio ${serviceId}`);
+
+    res.status(201).json({ 
+      message: 'Mensaje enviado correctamente',
+      data: message 
+    });
+
+  } catch (error: any) {
+    console.error('💥 Error al enviar mensaje:', error);
+    res.status(500).json({ error: 'Error interno al enviar el mensaje' });
+  }
+});
+
+// Obtener mensajes de un servicio
+app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+
+  try {
+    // Incluimos las relaciones necesarias
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      include: {
+        professional: true,   // ← Necesario
+        requester: true       // ← Necesario
+      }
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: 'Servicio no encontrado' });
+    }
+
+    // Verificar que el usuario tenga acceso (es el requester o el professional)
+    const isRequester = service.requesterId === req.user.id;
+    const isProfessionalUser = service.professional?.userId === req.user.id;
+
+    if (!isRequester && !isProfessionalUser) {
+      return res.status(403).json({ error: 'No tienes permiso para ver estos mensajes' });
+    }
+
+    const messages = await prisma.message.findMany({
+      where: { serviceId },
+      include: {
+        sender: {
+          select: { 
+            id: true, 
+            firstName: true, 
+            lastName: true 
+          }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    res.json({ messages });
+
+  } catch (error: any) {
+    console.error('💥 Error al obtener mensajes:', error);
+    res.status(500).json({ error: 'Error al obtener los mensajes' });
+  }
+});
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
