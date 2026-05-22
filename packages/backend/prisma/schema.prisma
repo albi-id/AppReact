@@ -41,79 +41,100 @@ enum Modality {
 // ==================== MODELOS =====================
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  password      String
-  role          Role     @default(USER)
-  firstName     String?
-  lastName      String?
-  lastLocation  Json?    // { lat: number, lng: number }  ← Agregar esto
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  password     String
+  role         Role     @default(USER)
+  firstName    String?
+  lastName     String?
+  lastLocation Json? // { lat: number, lng: number }  ← Agregar esto
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  services          Service[] @relation("ServiceRequester")
-  professional      Professional?
+  services         Service[]     @relation("ServiceRequester")
+  professional     Professional?
+  sentMessages     Message[]     @relation("SentMessages") // ← Agregar
+  receivedMessages Message[]     @relation("ReceivedMessages") // ← Agregar
 
   @@map("users")
 }
 
 model Professional {
-  id                String   @id @default(cuid())
-  userId            String   @unique
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  fullName          String
-  profession        String
-  description       String?
+  fullName    String
+  profession  String
+  description String?
 
-  phone             String?
-  address           String?
+  phone   String?
+  address String?
 
-  dniFrontUrl       String?
-  dniBackUrl        String?
-  certificateUrl    String?
+  dniFrontUrl    String?
+  dniBackUrl     String?
+  certificateUrl String?
 
-  rating            Float    @default(0.0)
-  reviewCount       Int      @default(0)
+  rating      Float @default(0.0)
+  reviewCount Int   @default(0)
 
-  isActive          Boolean  @default(false)
-  status            ProfessionalStatus @default(PENDING)
+  isActive Boolean            @default(false)
+  status   ProfessionalStatus @default(PENDING)
 
-  modalities        Modality[]
-  vehicleType       String?
-  lastLocation      Json?    // { lat: number, lng: number }
+  modalities   Modality[]
+  vehicleType  String?
+  lastLocation Json? // { lat: number, lng: number }
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relación con servicios donde este profesional es quien presta el servicio
-  services          Service[] @relation("ServiceProfessional")
+  services Service[] @relation("ServiceProfessional")
 
   @@map("professionals")
 }
 
 model Service {
-  id                String        @id @default(cuid())
-  requesterId       String
-  professionalId    String?
+  id             String  @id @default(cuid())
+  requesterId    String
+  professionalId String?
 
-  type              String
-  pickupLat         Float?
-  pickupLng         Float?
+  type      String
+  pickupLat Float?
+  pickupLng Float?
 
-  status            ServiceStatus @default(REQUESTED)
-  amount            Float?
-  rating            Int?
-  review            String?
+  status ServiceStatus @default(REQUESTED)
+  amount Float?
+  rating Int?
+  review String?
 
-  requestedAt       DateTime @default(now())
-  acceptedAt        DateTime?
-  arrivedAt         DateTime?
-  completedAt       DateTime?
-  paidAt            DateTime?
+  requestedAt DateTime  @default(now())
+  acceptedAt  DateTime?
+  arrivedAt   DateTime?
+  completedAt DateTime?
+  paidAt      DateTime?
 
-  requester         User          @relation("ServiceRequester", fields: [requesterId], references: [id])
-  professional      Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
+  requester    User          @relation("ServiceRequester", fields: [requesterId], references: [id])
+  professional Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
+  messages     Message[] // ← Agregar esta línea
 
   @@map("services")
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  serviceId  String
+  senderId   String
+  receiverId String
+  content    String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  service  Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  sender   User    @relation("SentMessages", fields: [senderId], references: [id])
+  receiver User    @relation("ReceivedMessages", fields: [receiverId], references: [id])
+
+  @@index([serviceId])
+  @@index([senderId])
+  @@index([receiverId])
 }
