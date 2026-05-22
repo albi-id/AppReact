@@ -26,8 +26,8 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     pricePerMinute: 25,
     basePrice: 150,
   },
-  
-  {
+
+   {
     key: 'MUDANZA',
      label: 'MUDANZA',
     pricePerMinute: 15,
@@ -40,13 +40,13 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     pricePerMinute: 40,
     basePrice: 400,
    },
+   
    {
-  key: 'ELECTRICISTA',           // ← Clave única en mayúsculas
-  label: 'ELECTRICISTA',         // ← Nombre bonito para mostrar
-  basePrice: 70,                  // No se usa en fixed price
-  pricePerMinute: 70,             // No se usa en fixed price
+  key: 'ELECTRICISTA',           // por presupuesto por eso pongo 0
+  label: 'ELECTRICISTA',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
 },
-
 
   // Agrega aquí nuevos servicios fácilmente:
   // {
