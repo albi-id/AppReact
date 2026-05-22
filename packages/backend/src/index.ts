@@ -430,7 +430,6 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any
 });
 
 // HU-13: Finalizar servicio + cálculo de importe (adaptado a Professional)
-// HU-24: Finalizar servicio (Profesional)
 app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
@@ -471,12 +470,21 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
 
     // ====================== SERVICIO POR PRESUPUESTO ======================
     if (isFixedPrice) {
-      console.log(`⏳ [FINISH] Servicio por presupuesto #${serviceId} marcado como finalizado por profesional. Esperando monto del cliente.`);
+      const updated = await prisma.service.update({
+        where: { id: serviceId },
+        data: { 
+          status: 'COMPLETED',
+          completedAt: new Date()
+          // amount queda null o vacío → el usuario lo ingresará después
+        }
+      });
+
+      console.log(`⏳ [FINISH-FIXED] Servicio por presupuesto #${serviceId} marcado como COMPLETED por profesional. Esperando monto del cliente.`);
 
       return res.json({ 
-        message: 'Trabajo finalizado. Se ha notificado al cliente para que ingrese el monto acordado.',
+        message: 'Trabajo finalizado. Esperando que el cliente ingrese el monto acordado.',
         isFixedPrice: true,
-        status: 'ARRIVED'   // Mantenemos el estado
+        service: updated
       });
     }
 
@@ -502,7 +510,7 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
       }
     });
 
-    console.log(`✅ [FINISH] Servicio por tiempo #${serviceId} finalizado por ${professional.fullName} | Importe: $${amount} ARS`);
+    console.log(`✅ [FINISH] Servicio por tiempo #${serviceId} finalizado | Importe: $${amount}`);
 
     res.json({ 
       message: 'Servicio finalizado correctamente', 
