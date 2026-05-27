@@ -32,7 +32,6 @@ app.use(express.json());
 const port = Number(process.env.PORT) || 10000;
 
 // ==================== MIDDLEWARE SEGURO ====================
-// ==================== MIDDLEWARE DE AUTENTICACIÓN ====================
 const authenticate = async (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
 
@@ -48,7 +47,6 @@ const authenticate = async (req: any, res: any, next: any) => {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
 
-  // Buscar o crear usuario en Prisma
   let dbUser = await prisma.user.findUnique({ 
     where: { id: user.id } 
   });
@@ -58,7 +56,7 @@ const authenticate = async (req: any, res: any, next: any) => {
       data: {
         id: user.id,
         email: user.email!,
-        password: "supabase-auth",           // ← Valor por defecto requerido
+        password: "supabase-auth",
         role: 'USER',
         firstName: null,
         lastName: null,
@@ -107,21 +105,22 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
           select: { 
             id: true, 
             fullName: true, 
-            profession: true 
+            profession: true,
+            rating: true
           }
         }
       },
       orderBy: { requestedAt: 'desc' },
     });
 
-    console.log(`📋 Usuario ${req.user.id} tiene ${services.length} servicios`);
+    console.log(`📋 [SERVICES/MY] Usuario ${req.user.id} tiene ${services.length} servicios`);
 
     res.json({
       message: 'Mis servicios',
       services
     });
   } catch (error: any) {
-    console.error('💥 Error en /services/my:', error);
+    console.error('💥 [SERVICES/MY] Error:', error.message);
     res.status(500).json({ 
       error: 'Error interno al cargar servicios',
       details: error.message 
