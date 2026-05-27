@@ -103,22 +103,33 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
     const services = await prisma.service.findMany({
-      where: { requesterId: req.user.id },
+      where: { 
+        requesterId: req.user.id 
+      },
       include: {
         professional: {
-          select: { id: true, fullName: true, profession: true, rating: true }
+          select: { 
+            id: true, 
+            fullName: true, 
+            profession: true 
+          }
         }
       },
       orderBy: { requestedAt: 'desc' },
     });
 
+    console.log(`📋 Usuario ${req.user.id} tiene ${services.length} servicios`);
+
     res.json({
-      message: 'Mis servicios solicitados',
+      message: 'Mis servicios',
       services
     });
   } catch (error: any) {
-    console.error('Error en /services/my:', error);
-    res.status(500).json({ error: 'Error interno' });
+    console.error('💥 Error en /services/my:', error);
+    res.status(500).json({ 
+      error: 'Error interno al cargar servicios',
+      details: error.message 
+    });
   }
 });
 
