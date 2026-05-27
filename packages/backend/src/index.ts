@@ -94,6 +94,7 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
 });
 
 // HU-5: Mis servicios solicitados (para USER)
+// HU-5: Mis servicios solicitados (para USER) - Versión ULTRA MINIMAL
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
     console.log(`🔍 [SERVICES/MY] Buscando servicios para usuario: ${req.user.id}`);
@@ -102,17 +103,9 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       where: { 
         requesterId: req.user.id 
       },
-      include: {
-        professional: {
-          select: { 
-            id: true, 
-            fullName: true, 
-            profession: true 
-          }
-        }
-      },
+      // Sin include por ahora (para evitar errores de relación)
       orderBy: { 
-        id: 'desc'        // ← Más seguro (siempre existe)
+        requestedAt: 'desc'     // ← Este campo SÍ existe en tu modelo
       },
       take: 20
     });
@@ -125,9 +118,11 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
     });
 
   } catch (error: any) {
-    console.error('💥 [SERVICES/MY] ERROR:', error.message);
+    console.error('💥 [SERVICES/MY] ERROR CRÍTICO:', error);
+    console.error('💥 Mensaje:', error.message);
     console.error('💥 Código:', error.code);
-    
+    console.error('💥 Stack:', error.stack?.substring(0, 500));
+
     res.status(500).json({ 
       error: 'Error al cargar servicios',
       details: error.message,
