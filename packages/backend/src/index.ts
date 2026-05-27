@@ -1031,8 +1031,8 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
       return res.status(403).json({ error: 'Debes ser usuario para registrarte como prestador' });
     }
 
-    if (!fullName || !profession || !phone || !modalities || modalities.length === 0) {
-      return res.status(400).json({ error: 'Nombre, profesión, teléfono y modalidad son obligatorios' });
+    if ( !profession || !modalities || modalities.length === 0) {
+      return res.status(400).json({ error: 'Profesión y modalidad son obligatorios' });
     }
 
     // ←←←←←←←←←← AGREGAR ESTA VALIDACIÓN ←←←←←←←←←←
@@ -1050,10 +1050,10 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     const professional = await prisma.professional.create({
       data: {
         userId: req.user.id,
-        fullName: fullName.trim(),
+        fullName: fullName.trim()|| '',
         profession: profession.trim(),
         description: description?.trim() || '',
-        phone: phone.trim(),
+        phone: phone.trim()|| '',
         address: address?.trim() || '',
         dniFrontUrl,
         dniBackUrl,
