@@ -1296,6 +1296,45 @@ app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
   }
 });
 
+// ==================== REGISTRO DE USUARIO ====================
+app.post('/register', async (req: any, res: any) => {
+  const { id, email, firstName, lastName, address, photoUrl } = req.body;
+
+  try {
+    // Crear o actualizar usuario en Prisma
+    const user = await prisma.user.upsert({
+      where: { id },
+      update: {
+        firstName: firstName?.trim() || null,
+        lastName: lastName?.trim() || null,
+        address: address?.trim() || null,
+        photoUrl: photoUrl || null,
+      },
+      create: {
+        id,
+        email,
+        password: "supabase-auth", // No usamos contraseña local
+        role: 'USER',
+        firstName: firstName?.trim() || null,
+        lastName: lastName?.trim() || null,
+        address: address?.trim() || null,
+        photoUrl: photoUrl || null,
+      },
+    });
+
+    console.log(`✅ Usuario registrado/actualizado: ${email} (${user.id})`);
+
+    res.status(201).json({
+      message: 'Usuario registrado correctamente',
+      user
+    });
+
+  } catch (error: any) {
+    console.error('Error en /register:', error);
+    res.status(500).json({ error: 'Error al registrar usuario' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
