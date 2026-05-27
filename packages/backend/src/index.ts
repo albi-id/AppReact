@@ -1269,6 +1269,32 @@ app.patch('/users/me', authenticate, async (req: any, res: any) => {
   }
 });
 
+// HU-31: Subir foto de perfil (Bucket público)
+app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
+  const { photoUrl } = req.body;   // URL temporal desde el frontend (después de subir a Supabase)
+
+  try {
+    if (!photoUrl) {
+      return res.status(400).json({ error: 'photoUrl es requerido' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { photoUrl }
+    });
+
+    console.log(`📸 Foto de perfil actualizada para usuario ${req.user.id}`);
+
+    res.json({
+      message: 'Foto de perfil actualizada correctamente',
+      photoUrl: updatedUser.photoUrl
+    });
+
+  } catch (error: any) {
+    console.error('Error al actualizar foto:', error);
+    res.status(500).json({ error: 'Error interno al actualizar foto' });
+  }
+});
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
