@@ -60,13 +60,17 @@ const authenticate = async (req: any, res: any, next: any) => {
 
   if (!dbUser) {
     dbUser = await prisma.user.create({
-      data: {
-        id: user.id,
-        email: user.email!,
-        password: 'hashed_by_supabase',   // ← Campo requerido por tu schema
-        role: 'USER',
-      },
-    });
+  data: {
+    id: user.id,
+    email: user.email!,
+    password: 'hashed_by_supabase',
+    role: 'USER',
+    firstName: null,           // Se puede actualizar después
+    lastName: null,
+    photoUrl: null,
+    address: null,
+  },
+});
     console.log(`✅ Usuario creado automáticamente en Prisma: ${user.email}`);
   }
 
@@ -79,15 +83,21 @@ const authenticate = async (req: any, res: any, next: any) => {
 app.get('/health', (req, res) => res.json({ status: 'OK' }));
 
 app.get('/users/me', authenticate, async (req: any, res: any) => {
-  res.json({ 
-    user: { 
-      id: req.user.id, 
-      email: req.user.email, 
-      role: req.dbUser.role 
-    } 
+  const userData = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      photoUrl: true,
+      address: true,
+    }
   });
-});
 
+  res.json({ user: userData });
+});
 
 // HU-5: Mis servicios solicitados (para USER)
 app.get('/services/my', authenticate, async (req: any, res: any) => {
@@ -1222,6 +1232,43 @@ app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any
     res.status(500).json({ error: 'Error al obtener los mensajes' });
   }
 });
+
+// HU-30: Actualizar perfil de usuario (Nombre, foto, dirección, etc.)
+app.patch('/users/me', authenticate, async (req: any, res: any) => {
+  const { firstName, lastName, photoUrl, address } = req.body;
+
+  try {
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: {
+        firstName: firstName?.trim() || undefined,
+        lastName: lastName?.trim() || undefined,
+        photoUrl: photoUrl?.trim() || undefined,
+        address: address?.trim() || undefined,
+        updatedAt: new Date(),
+      }
+    });
+
+    console.log(`✅ Perfil actualizado para usuario ${req.user.id}`);
+
+    res.json({
+      message: 'Perfil actualizado correctamente',
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        photoUrl: updatedUser.photoUrl,
+        address: updatedUser.address,
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error actualizando perfil:', error);
+    res.status(500).json({ error: 'Error interno al actualizar perfil' });
+  }
+});
+
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);

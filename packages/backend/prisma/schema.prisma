@@ -47,6 +47,8 @@ model User {
   role         Role     @default(USER)
   firstName    String?
   lastName     String?
+  photoUrl     String?    
+  address      String?    
   lastLocation Json? // { lat: number, lng: number }  ← Agregar esto
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
