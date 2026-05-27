@@ -106,11 +106,14 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
             id: true, 
             fullName: true, 
             profession: true,
-            rating: true
+            rating: true,
+            vehicleType: true
           }
         }
       },
-      orderBy: { requestedAt: 'desc' },
+      orderBy: { 
+        requestedAt: 'desc' 
+      },
     });
 
     console.log(`📋 [SERVICES/MY] Usuario ${req.user.id} tiene ${services.length} servicios`);
@@ -120,7 +123,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       services
     });
   } catch (error: any) {
-    console.error('💥 [SERVICES/MY] Error:', error.message);
+    console.error('💥 [SERVICES/MY] Error completo:', error);
     res.status(500).json({ 
       error: 'Error interno al cargar servicios',
       details: error.message 
@@ -128,6 +131,18 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
   }
 });
 
+// Endpoint de debug temporal
+app.get('/debug/user', authenticate, async (req: any, res: any) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { services: true }
+    });
+    res.json({ user });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // HU-16: Mis servicios como profesional (CORREGIDO)
 app.get('/services/professional/my', authenticate, async (req: any, res: any) => {
