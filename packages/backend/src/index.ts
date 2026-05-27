@@ -32,8 +32,10 @@ app.use(express.json());
 const port = Number(process.env.PORT) || 10000;
 
 // ==================== MIDDLEWARE SEGURO ====================
+// ==================== MIDDLEWARE DE AUTENTICACIÓN ====================
 const authenticate = async (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token requerido (Bearer <token>)' });
   }
@@ -41,39 +43,33 @@ const authenticate = async (req: any, res: any, next: any) => {
   const token = authHeader.split(' ')[1];
 
   const { data: { user }, error } = await supabase.auth.getUser(token);
+
   if (error || !user) {
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
 
-  // Seguridad: email confirmado
-  if (!user.email_confirmed_at) {
-    return res.status(403).json({ error: 'Por favor confirma tu email' });
-  }
-
-  req.user = user;
-
   // Buscar o crear usuario en Prisma
-  let dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { id: true, email: true, role: true },
+  let dbUser = await prisma.user.findUnique({ 
+    where: { id: user.id } 
   });
 
   if (!dbUser) {
     dbUser = await prisma.user.create({
-  data: {
-    id: user.id,
-    email: user.email!,
-    password: 'hashed_by_supabase',
-    role: 'USER',
-    firstName: null,           // Se puede actualizar después
-    lastName: null,
-    photoUrl: null,
-    address: null,
-  },
-});
-    console.log(`✅ Usuario creado automáticamente en Prisma: ${user.email}`);
+      data: {
+        id: user.id,
+        email: user.email!,
+        password: "supabase-auth",           // ← Valor por defecto requerido
+        role: 'USER',
+        firstName: null,
+        lastName: null,
+        address: null,
+        photoUrl: null,
+      }
+    });
+    console.log(`✅ Nuevo usuario creado en Prisma: ${user.email}`);
   }
 
+  req.user = user;
   req.dbUser = dbUser;
   next();
 };
