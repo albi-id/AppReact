@@ -32,44 +32,61 @@ app.use(express.json());
 const port = Number(process.env.PORT) || 10000;
 
 // ==================== MIDDLEWARE SEGURO ====================
+// ==================== MIDDLEWARE DE AUTENTICACIÓN (DEBUG) ====================
 const authenticate = async (req: any, res: any, next: any) => {
-  const authHeader = req.headers.authorization;
+  try {
+    const authHeader = req.headers.authorization;
+    console.log(`🔐 [AUTH] Intentando autenticar... Header presente: ${!!authHeader}`);
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Token requerido (Bearer <token>)' });
-  }
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('❌ [AUTH] No Bearer token');
+      return res.status(401).json({ error: 'Token requerido' });
+    }
 
-  const token = authHeader.split(' ')[1];
+    const token = authHeader.split(' ')[1];
+    console.log(`🔐 [AUTH] Token recibido (primeros 20 chars): ${token.substring(0, 20)}...`);
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
 
-  if (error || !user) {
-    return res.status(401).json({ error: 'Token inválido o expirado' });
-  }
+    if (error || !user) {
+      console.log('❌ [AUTH] Token inválido:', error?.message);
+      return res.status(401).json({ error: 'Token inválido o expirado' });
+    }
 
-  let dbUser = await prisma.user.findUnique({ 
-    where: { id: user.id } 
-  });
+    console.log(`✅ [AUTH] Usuario Supabase OK: ${user.email} (${user.id})`);
 
-  if (!dbUser) {
-    dbUser = await prisma.user.create({
-      data: {
-        id: user.id,
-        email: user.email!,
-        password: "supabase-auth",
-        role: 'USER',
-        firstName: null,
-        lastName: null,
-        address: null,
-        photoUrl: null,
-      }
+    // Buscar o crear usuario en Prisma
+    let dbUser = await prisma.user.findUnique({ 
+      where: { id: user.id } 
     });
-    console.log(`✅ Nuevo usuario creado en Prisma: ${user.email}`);
-  }
 
-  req.user = user;
-  req.dbUser = dbUser;
-  next();
+    if (!dbUser) {
+      console.log(`🆕 [AUTH] Creando nuevo usuario en Prisma...`);
+      dbUser = await prisma.user.create({
+        data: {
+          id: user.id,
+          email: user.email!,
+          password: "supabase-auth",
+          role: 'USER',
+          firstName: null,
+          lastName: null,
+          address: null,
+          photoUrl: null,
+        }
+      });
+      console.log(`✅ [AUTH] Usuario creado en Prisma: ${user.email}`);
+    } else {
+      console.log(`✅ [AUTH] Usuario ya existía en Prisma`);
+    }
+
+    req.user = user;
+    req.dbUser = dbUser;
+    next();
+
+  } catch (error: any) {
+    console.error('💥 [AUTH] ERROR CRÍTICO en authenticate:', error.message);
+    res.status(500).json({ error: 'Error de autenticación interna', details: error.message });
+  }
 };
 
 // ==================== RUTAS CRÍTICAS ====================
