@@ -38,7 +38,6 @@ const authenticate = async (req: any, res: any, next: any) => {
     console.log(`🔐 [AUTH] Intentando autenticar...`);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('❌ [AUTH] No Bearer token');
       return res.status(401).json({ error: 'Token requerido' });
     }
 
@@ -51,25 +50,47 @@ const authenticate = async (req: any, res: any, next: any) => {
       return res.status(401).json({ error: 'Token inválido o expirado' });
     }
 
-    console.log(`✅ [AUTH] Usuario Supabase OK: ${user.email} (${user.id})`);
+    console.log(`✅ [AUTH] Usuario Supabase: ${user.email} (${user.id})`);
 
-    // USAR UPSERT en lugar de find + create
-    const dbUser = await prisma.user.upsert({
-      where: { id: user.id },
-      update: {}, // No actualizamos nada si ya existe
-      create: {
-        id: user.id,
-        email: user.email!,
-        password: "supabase-auth",
-        role: 'USER',
-        firstName: null,
-        lastName: null,
-        address: null,
-        photoUrl: null,
-      },
+    // === BUSCAR POR ID ===
+    let dbUser = await prisma.user.findUnique({
+      where: { id: user.id }
     });
 
-    console.log(`✅ [AUTH] Usuario listo en Prisma: ${dbUser.email}`);
+    // === SI NO EXISTE POR ID, BUSCAR POR EMAIL ===
+    if (!dbUser) {
+      dbUser = await prisma.user.findUnique({
+        where: { email: user.email! }
+      });
+    }
+
+    // === SI NO EXISTE, CREAR ===
+    if (!dbUser) {
+      console.log(`🆕 [AUTH] Creando nuevo usuario en Prisma...`);
+      dbUser = await prisma.user.create({
+        data: {
+          id: user.id,
+          email: user.email!,
+          password: "supabase-auth",
+          role: 'USER',
+          firstName: null,
+          lastName: null,
+          address: null,
+          photoUrl: null,
+        }
+      });
+      console.log(`✅ [AUTH] Usuario creado correctamente`);
+    } 
+    // === SI EXISTE PERO EL ID ES DIFERENTE (conflicto), ACTUALIZARLO ===
+    else if (dbUser.id !== user.id) {
+      console.log(`🔄 [AUTH] Actualizando ID del usuario (conflicto anterior)`);
+      dbUser = await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { id: user.id }
+      });
+    }
+
+    console.log(`✅ [AUTH] Usuario listo en Prisma: ${dbUser.email} (${dbUser.id})`);
 
     req.user = user;
     req.dbUser = dbUser;
