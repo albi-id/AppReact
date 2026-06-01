@@ -1031,11 +1031,16 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
       return res.status(403).json({ error: 'Debes ser usuario para registrarte como prestador' });
     }
 
-    if ( !profession || !modalities || modalities.length === 0) {
-      return res.status(400).json({ error: 'Profesión y modalidad son obligatorios' });
+    // Validaciones mínimas
+    if (!profession || typeof profession !== 'string' || profession.trim() === '') {
+      return res.status(400).json({ error: 'La profesión es obligatoria' });
     }
 
-    // ←←←←←←←←←← AGREGAR ESTA VALIDACIÓN ←←←←←←←←←←
+    if (!modalities || !Array.isArray(modalities) || modalities.length === 0) {
+      return res.status(400).json({ error: 'Debes seleccionar al menos una modalidad' });
+    }
+
+    // Verificar si ya tiene una solicitud
     const existing = await prisma.professional.findUnique({
       where: { userId: req.user.id }
     });
@@ -1045,27 +1050,26 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         error: 'Ya tienes una solicitud de profesional registrada.' 
       });
     }
-    // ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
 
     const professional = await prisma.professional.create({
       data: {
         userId: req.user.id,
-        fullName: fullName.trim()|| '',
+        fullName: fullName?.trim() || req.dbUser.email.split('@')[0], // fallback
         profession: profession.trim(),
         description: description?.trim() || '',
-        phone: phone.trim()|| '',
+        phone: phone?.trim() || '',
         address: address?.trim() || '',
-        dniFrontUrl,
-        dniBackUrl,
-        certificateUrl,
-        modalities: modalities || ['TIME_BASED'],   // Default seguro
+        dniFrontUrl: dniFrontUrl || null,
+        dniBackUrl: dniBackUrl || null,
+        certificateUrl: certificateUrl || null,
+        modalities: modalities || ['TIME_BASED'],
         isActive: false,
         status: 'PENDING',
-        vehicleType: profession,   // ← Guardamos la profesión también aquí
+        vehicleType: profession.trim(),
       }
     });
 
-    console.log(`📋 Nueva solicitud: ${fullName} - ${profession} - Modalidades: ${modalities}`);
+    console.log(`📋 Nueva solicitud de profesional: ${professional.fullName} - ${profession}`);
 
     res.status(201).json({
       message: 'Solicitud enviada correctamente. Pendiente de aprobación.',
@@ -1073,8 +1077,11 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     });
 
   } catch (error: any) {
-    console.error('Error al registrar prestador:', error);
-    res.status(500).json({ error: 'Error interno' });
+    console.error('💥 Error al registrar prestador:', error);
+    res.status(500).json({ 
+      error: 'Error interno al registrar profesional',
+      details: error.message 
+    });
   }
 });
 
