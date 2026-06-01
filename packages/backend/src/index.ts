@@ -898,26 +898,20 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // =============================================
 
 // HU-20: Listado de Profesionales Destacados
+// HU-20: Listado de Profesionales Destacados
 app.get('/professionals', async (req: any, res: any) => {
-  const { search, profession, lat, lng } = req.query;
+  const { search, profession } = req.query;
 
   try {
-    console.log(`📋 [PROFESSIONALS] Listado solicitado | Search: ${search} | Profession: ${profession}`);
-
     const where: any = { 
       isActive: true,
       status: 'APPROVED'
     };
 
-    // Filtro por profesión específica
     if (profession) {
-      where.profession = { 
-        contains: profession as string, 
-        mode: 'insensitive' 
-      };
+      where.profession = { contains: profession as string, mode: 'insensitive' };
     }
 
-    // Búsqueda general
     if (search) {
       where.OR = [
         { fullName: { contains: search as string, mode: 'insensitive' } },
@@ -929,7 +923,9 @@ app.get('/professionals', async (req: any, res: any) => {
       where,
       include: { 
         user: {
-          select: { id: true, firstName: true, lastName: true }
+          select: { 
+            photoUrl: true   // ← ESTO ES LO MÁS IMPORTANTE
+          }
         }
       },
       orderBy: [
@@ -937,20 +933,22 @@ app.get('/professionals', async (req: any, res: any) => {
         { reviewCount: 'desc' },
         { createdAt: 'desc' }
       ],
-      take: 50,
     });
 
-    console.log(`✅ [PROFESSIONALS] ${professionals.length} profesionales encontrados`);
+    // Transformar para que photoUrl esté en el nivel principal (más fácil en frontend)
+    const formatted = professionals.map(p => ({
+      ...p,
+      photoUrl: p.user?.photoUrl || null,
+      user: undefined // opcional: limpiar
+    }));
 
     res.json({
       message: 'Profesionales disponibles',
-      professionals,
-      total: professionals.length,
-      filters: { search, profession }
+      professionals: formatted,
     });
 
   } catch (error: any) {
-    console.error('💥 [PROFESSIONALS] Error al obtener listado:', error);
+    console.error('💥 [PROFESSIONALS] Error:', error);
     res.status(500).json({ error: 'Error interno al obtener profesionales' });
   }
 });
