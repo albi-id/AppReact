@@ -1013,7 +1013,6 @@ app.get('/professionals/:id', async (req: any, res: any) => {
 // HU-23: Registro como Prestador de Servicios 
 app.post('/professionals/register', authenticate, async (req: any, res: any) => {
   const { 
-    fullName, 
     profession, 
     description, 
     phone, 
@@ -1048,11 +1047,17 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         error: 'Ya tienes una solicitud de profesional registrada.' 
       });
     }
+// Crear nombre completo a partir del usuario
+    const fullName = [
+      req.dbUser.firstName,
+      req.dbUser.lastName
+    ].filter(Boolean).join(' ').trim() || req.dbUser.email.split('@')[0];
+
 
     const professional = await prisma.professional.create({
       data: {
         userId: req.user.id,
-        fullName: fullName?.trim() || req.dbUser.email.split('@')[0], // fallback
+        fullName: fullName,
         profession: profession.trim(),
         description: description?.trim() || '',
         phone: phone?.trim() || '',
