@@ -167,7 +167,8 @@ app.get('/debug/user', authenticate, async (req: any, res: any) => {
   }
 });
 
-// HU-16: Mis servicios como profesional (CORREGIDO)
+ 
+// HU-16: Mis servicios como profesional  
 app.get('/services/professional/my', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
@@ -199,19 +200,31 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
             id: true, 
             firstName: true, 
             lastName: true, 
-            email: true,
-            fullName: true 
+            email: true
+            // fullName: true  ← Eliminado porque no existe en el modelo User
           }
         }
       },
       orderBy: { requestedAt: 'desc' },
     });
 
-    console.log(`📋 [PROFESSIONAL/MY] Profesional ${professional.fullName} (${professional.profession}) → ${services.length} servicios`);
+    // Formateamos el nombre completo para facilitar el frontend
+    const formattedServices = services.map(service => ({
+      ...service,
+      requester: service.requester ? {
+        ...service.requester,
+        fullName: [service.requester.firstName, service.requester.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || 'Usuario'
+      } : null
+    }));
+
+    console.log(`📋 [PROFESSIONAL/MY] Profesional ${professional.fullName} → ${services.length} servicios`);
 
     res.json({
       message: 'Mis servicios como profesional',
-      services,
+      services: formattedServices,
       professional: {
         id: professional.id,
         fullName: professional.fullName,
