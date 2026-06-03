@@ -124,36 +124,33 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
 });
 
 // HU-5: Mis servicios solicitados (para USER)
-// HU-5: Mis servicios solicitados (para USER) - Versión ULTRA MINIMAL
-// HU-5: Mis servicios solicitados (para USER) - Versión MÍNIMA para debug
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
-    console.log(`🔍 [SERVICES/MY] Iniciando consulta para usuario: ${req.user.id}`);
-
-    // Consulta ULTRA SIMPLE
     const services = await prisma.service.findMany({
       where: { 
         requesterId: req.user.id 
-      }
+      },
+      include: {
+        professional: {
+          select: { 
+            id: true,
+            fullName: true,        // ← Importante
+            profession: true
+          }
+        }
+      },
+      orderBy: { 
+        requestedAt: 'desc' 
+      },
     });
-
-    console.log(`✅ [SERVICES/MY] Consulta exitosa - Servicios encontrados: ${services.length}`);
 
     res.json({
       message: 'Mis servicios',
-      services: services || []
+      services
     });
-
   } catch (error: any) {
-    console.error('💥 [SERVICES/MY] ERROR CRÍTICO:', error);
-    console.error('💥 Mensaje:', error.message);
-    console.error('💥 Código:', error.code);
-    
-    res.status(500).json({ 
-      error: 'Error al cargar servicios',
-      details: error.message,
-      code: error.code
-    });
+    console.error('💥 [SERVICES/MY] Error:', error);
+    res.status(500).json({ error: 'Error al cargar servicios' });
   }
 });
 
@@ -202,7 +199,8 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
             id: true, 
             firstName: true, 
             lastName: true, 
-            email: true 
+            email: true,
+            fullName: true 
           }
         }
       },
