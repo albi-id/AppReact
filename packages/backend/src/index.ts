@@ -1520,6 +1520,32 @@ app.get('/professions/available', async (req: any, res: any) => {
   }
 });
 
+// Obtener todas las provincias
+app.get('/provinces', async (req: any, res: any) => {
+  try {
+    const provinces = await prisma.province.findMany({
+      orderBy: { name: 'asc' }
+    });
+    res.json({ provinces });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al cargar provincias' });
+  }
+});
+
+// Obtener ciudades por provincia
+app.get('/cities', async (req: any, res: any) => {
+  const { provinceId } = req.query;
+  try {
+    const cities = await prisma.city.findMany({
+      where: { provinceId },
+      orderBy: { name: 'asc' }
+    });
+    res.json({ cities });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al cargar ciudades' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
