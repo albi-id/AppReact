@@ -123,8 +123,8 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
   res.json({ user: userData });
 });
 
-// HU-5: Mis servicios solicitados (para USER)
-// HU-5: Mis servicios solicitados (para USER)
+ 
+// HU-5: Mis servicios solicitados (para USER) - Con distancia calculada
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
     const services = await prisma.service.findMany({
@@ -136,7 +136,8 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
           select: { 
             id: true,
             fullName: true,
-            profession: true
+            profession: true,
+            lastLocation: true   // Necesario para calcular distancia
           }
         }
       },
@@ -145,14 +146,42 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       },
     });
 
-    // Formateo seguro del nombre completo (por si fullName es null)
-    const formattedServices = services.map(service => ({
-      ...service,
-      professional: service.professional ? {
-        ...service.professional,
-        fullName: service.professional.fullName || 'Profesional'
-      } : null
-    }));
+    // Función Haversine para calcular distancia
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371; // Radio de la Tierra en km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    const formattedServices = services.map(service => {
+      let distanceKm = 0;
+
+      if (service.pickupLat && service.pickupLng && service.professional?.lastLocation) {
+        const loc = service.professional.lastLocation as any;
+        if (loc?.lat && loc?.lng) {
+          distanceKm = parseFloat(getDistance(
+            service.pickupLat, 
+            service.pickupLng, 
+            loc.lat, 
+            loc.lng
+          ).toFixed(2));
+        }
+      }
+
+      return {
+        ...service,
+        professional: service.professional ? {
+          ...service.professional,
+          fullName: service.professional.fullName || 'Profesional'
+        } : null,
+        distanceKm,   // ← Nueva información útil
+      };
+    });
 
     console.log(`📋 [SERVICES/MY] Usuario ${req.user.id} tiene ${services.length} servicios`);
 
@@ -184,7 +213,7 @@ app.get('/debug/user', authenticate, async (req: any, res: any) => {
 });
 
  
-// HU-16: Mis servicios como profesional  
+// HU-16: Mis servicios como profesional (CON DISTANCIA)
 app.get('/services/professional/my', authenticate, async (req: any, res: any) => {
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
@@ -217,24 +246,52 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
             firstName: true, 
             lastName: true, 
             email: true
-            // fullName: true  ← Eliminado porque no existe en el modelo User
           }
         }
       },
       orderBy: { requestedAt: 'desc' },
     });
 
-    // Formateamos el nombre completo para facilitar el frontend
-    const formattedServices = services.map(service => ({
-      ...service,
-      requester: service.requester ? {
-        ...service.requester,
-        fullName: [service.requester.firstName, service.requester.lastName]
-          .filter(Boolean)
-          .join(' ')
-          .trim() || 'Usuario'
-      } : null
-    }));
+    // Función Haversine para calcular distancia
+    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371; // Radio de la Tierra en km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    // Formateo + Cálculo de distancia
+    const formattedServices = services.map(service => {
+      let distanceKm = 0;
+
+      if (service.pickupLat && service.pickupLng && professional.lastLocation) {
+        const loc = professional.lastLocation as any;
+        if (loc?.lat && loc?.lng) {
+          distanceKm = parseFloat(getDistance(
+            loc.lat, 
+            loc.lng, 
+            service.pickupLat, 
+            service.pickupLng
+          ).toFixed(2));
+        }
+      }
+
+      return {
+        ...service,
+        requester: service.requester ? {
+          ...service.requester,
+          fullName: [service.requester.firstName, service.requester.lastName]
+            .filter(Boolean)
+            .join(' ')
+            .trim() || 'Usuario'
+        } : null,
+        distanceKm,                    // ← Distancia desde profesional hasta pickup
+      };
+    });
 
     console.log(`📋 [PROFESSIONAL/MY] Profesional ${professional.fullName} → ${services.length} servicios`);
 
