@@ -849,7 +849,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         error: 'Ya tienes un servicio activo. Debes finalizar o cancelar el actual antes de solicitar uno nuevo.' 
       });
     }
-    
+
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
@@ -1432,6 +1432,32 @@ app.post('/register', async (req: any, res: any) => {
   } catch (error: any) {
     console.error('Error en /register:', error);
     res.status(500).json({ error: 'Error al registrar usuario' });
+  }
+});
+
+// Obtener profesiones disponibles (solo las que tienen profesionales activos)
+app.get('/professions/available', async (req: any, res: any) => {
+  try {
+    const professionals = await prisma.professional.findMany({
+      where: {
+        isActive: true,
+        status: 'APPROVED'
+      },
+      select: {
+        profession: true
+      }
+    });
+
+    // Obtener profesiones únicas
+    const uniqueProfessions = [...new Set(professionals.map(p => p.profession))];
+
+    res.json({
+      professions: uniqueProfessions.sort()
+    });
+
+  } catch (error: any) {
+    console.error('Error al obtener profesiones disponibles:', error);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
