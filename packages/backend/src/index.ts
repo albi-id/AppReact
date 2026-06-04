@@ -834,6 +834,22 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       return res.status(400).json({ error: 'type, pickupLat y pickupLng son obligatorios' });
     }
 
+    // ==================== VERIFICACIÓN DE SERVICIO ACTIVO ====================
+    const activeService = await prisma.service.findFirst({
+      where: { 
+        requesterId: req.user.id,
+        status: {
+          in: ['REQUESTED', 'OFFERED', 'ACCEPTED', 'ARRIVED']
+        }
+      }
+    });
+
+    if (activeService) {
+      return res.status(409).json({ 
+        error: 'Ya tienes un servicio activo. Debes finalizar o cancelar el actual antes de solicitar uno nuevo.' 
+      });
+    }
+    
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
