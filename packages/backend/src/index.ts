@@ -1169,6 +1169,8 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         isActive: false,
         status: 'PENDING',
         vehicleType: profession.trim(),
+        provinceId: req.dbUser.provinceId,     // Heredamos del usuario
+        cityId: req.dbUser.cityId,             // Heredamos del usuario
       }
     });
 

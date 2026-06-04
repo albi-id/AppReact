@@ -52,6 +52,11 @@ model User {
   lastLocation Json? // { lat: number, lng: number }  ← Agregar esto
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  provinceId  String?
+  cityId      String?
+  
+  province    Province? @relation(fields: [provinceId], references: [id])
+  city        City?     @relation(fields: [cityId], references: [id])
 
   services         Service[]     @relation("ServiceRequester")
   professional     Professional?
@@ -89,6 +94,11 @@ model Professional {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  provinceId    String?   // ← Agregar
+  cityId        String?   // ← Agregar
+  
+  province      Province? @relation(fields: [provinceId], references: [id])  // ← Agregar
+  city          City?     @relation(fields: [cityId], references: [id])     // ← Agregar
 
   // Relación con servicios donde este profesional es quien presta el servicio
   services Service[] @relation("ServiceProfessional")
@@ -139,4 +149,28 @@ model Message {
   @@index([serviceId])
   @@index([senderId])
   @@index([receiverId])
+}
+
+
+model Province {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  cities      City[]
+  users       User[]
+  professionals Professional[]   // ← Agregar esta línea
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model City {
+  id            String        @id @default(cuid())
+  name          String
+  provinceId    String
+  province      Province      @relation(fields: [provinceId], references: [id])
+  users         User[]
+  professionals Professional[]   // ← Agregar esta línea
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([name, provinceId])
 }
