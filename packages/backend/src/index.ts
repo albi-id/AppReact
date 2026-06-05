@@ -998,7 +998,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // =============================================
 
 // HU-20: Listado de Profesionales con filtro combinado (Ubicación + Búsqueda)
-app.get('/professionals', async (req: any, res: any) => {
+ app.get('/professionals', async (req: any, res: any) => {
   const { search, profession, provinceId, cityId } = req.query;
 
   try {
@@ -1012,35 +1012,44 @@ app.get('/professionals', async (req: any, res: any) => {
       where.profession = { contains: profession as string, mode: 'insensitive' };
     }
 
-    // Filtro por ubicación (Provincia y/o Ciudad)
+    // ==================== FILTRO DE UBICACIÓN CON FALLBACK ====================
     if (provinceId || cityId) {
-      where.AND = where.AND || [];
+      where.OR = [];
 
-      const locationFilter: any = {};
-      if (provinceId) locationFilter.provinceId = provinceId;
-      if (cityId) locationFilter.cityId = cityId;
+      // 1. Buscar directamente en Professional
+      const professionalFilter: any = {};
+      if (provinceId) professionalFilter.provinceId = provinceId;
+      if (cityId) professionalFilter.cityId = cityId;
 
-      where.AND.push(locationFilter);
-      
- // Fallback: buscar en User (para profesionales que aún no tienen los datos migrados)
+      where.OR.push(professionalFilter);
+
+      // 2. Fallback: Buscar en la relación User (para profesionales antiguos)
       where.OR.push({
         user: {
           ...(provinceId && { provinceId }),
           ...(cityId && { cityId })
         }
       });
-
     }
 
-    // Filtro de búsqueda por nombre o profesión
+    // ==================== BÚSQUEDA POR TEXTO ====================
     if (search) {
-      where.AND = where.AND || [];
-      where.AND.push({
+      const searchFilter = {
         OR: [
           { fullName: { contains: search as string, mode: 'insensitive' } },
           { profession: { contains: search as string, mode: 'insensitive' } }
         ]
-      });
+      };
+
+      if (where.OR) {
+        where.AND = [
+          { OR: where.OR },
+          searchFilter
+        ];
+        delete where.OR; // Limpiamos para evitar conflicto
+      } else {
+        where.OR = [searchFilter]; // Si no hay filtro de ubicación, usamos OR normal
+      }
     }
 
     const professionals = await prisma.professional.findMany({
@@ -1064,7 +1073,7 @@ app.get('/professionals', async (req: any, res: any) => {
       ],
     });
 
-    console.log(`📍 Filtros aplicados → Provincia: ${provinceId}, Ciudad: ${cityId}, Search: ${search}`);
+    console.log(`📍 Filtros → Provincia: ${provinceId}, Ciudad: ${cityId}, Search: "${search}" | Resultados: ${professionals.length}`);
 
     res.json({
       message: 'Profesionales disponibles',
@@ -1075,7 +1084,10 @@ app.get('/professionals', async (req: any, res: any) => {
 
   } catch (error: any) {
     console.error('💥 [PROFESSIONALS] Error:', error);
-    res.status(500).json({ error: 'Error interno al obtener profesionales' });
+    res.status(500).json({ 
+      error: 'Error interno al obtener profesionales',
+      details: error.message 
+    });
   }
 });
 
