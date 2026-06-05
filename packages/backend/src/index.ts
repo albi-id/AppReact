@@ -998,9 +998,8 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // =============================================
 
 // HU-20: Listado de Profesionales Destacados
-// HU-20: Listado de Profesionales Destacados
 app.get('/professionals', async (req: any, res: any) => {
-  const { search, profession } = req.query;
+  const { search, profession, provinceId, cityId } = req.query;
 
   try {
     const where: any = { 
@@ -1010,6 +1009,14 @@ app.get('/professionals', async (req: any, res: any) => {
 
     if (profession) {
       where.profession = { contains: profession as string, mode: 'insensitive' };
+    }
+    
+    if (provinceId) {
+      where.provinceId = provinceId;
+    }
+
+    if (cityId) {
+      where.cityId = cityId;
     }
 
     if (search) {
@@ -1024,7 +1031,10 @@ app.get('/professionals', async (req: any, res: any) => {
       include: { 
         user: {
           select: { 
-            photoUrl: true   // ← ESTO ES LO MÁS IMPORTANTE
+            id: true, 
+            firstName: true, 
+            lastName: true,
+            photoUrl: true
           }
         }
       },
@@ -1034,19 +1044,13 @@ app.get('/professionals', async (req: any, res: any) => {
         { createdAt: 'desc' }
       ],
     });
-
-    // Transformar para que photoUrl esté en el nivel principal (más fácil en frontend)
-    const formatted = professionals.map(p => ({
-      ...p,
-      photoUrl: p.user?.photoUrl || null,
-      user: undefined // opcional: limpiar
-    }));
-
-    res.json({
+    
+ res.json({
       message: 'Profesionales disponibles',
-      professionals: formatted,
+      professionals,
+      total: professionals.length,
     });
-
+    
   } catch (error: any) {
     console.error('💥 [PROFESSIONALS] Error:', error);
     res.status(500).json({ error: 'Error interno al obtener profesionales' });
