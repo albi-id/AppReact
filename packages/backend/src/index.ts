@@ -997,7 +997,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // PROFESIONALES DESTACADOS 
 // =============================================
 
-// HU-20: Listado de Profesionales con filtro por ubicación + búsqueda combinada
+// HU-20: Listado de Profesionales con filtro por ubicación (inteligente)
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession, provinceId, cityId } = req.query;
 
@@ -1007,16 +1007,29 @@ app.get('/professionals', async (req: any, res: any) => {
       status: 'APPROVED'
     };
 
-    // ==================== FILTRO POR UBICACIÓN ====================
+    // ==================== FILTRO POR UBICACIÓN (AND) ====================
     if (provinceId || cityId) {
-      where.AND = where.AND || [];
+      where.AND = [];
 
       const locationFilter: any = {};
-      
+
       if (provinceId) locationFilter.provinceId = provinceId;
       if (cityId) locationFilter.cityId = cityId;
 
       where.AND.push(locationFilter);
+
+      // Fallback: buscar también en la tabla User (para profesionales sin datos migrados)
+      where.AND.push({
+        OR: [
+          locationFilter, // Buscar en Professional
+          {
+            user: {
+              ...(provinceId && { provinceId }),
+              ...(cityId && { cityId })
+            }
+          }
+        ]
+      });
     }
 
     // ==================== FILTRO POR BÚSQUEDA ====================
