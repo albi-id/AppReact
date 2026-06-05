@@ -998,6 +998,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // =============================================
 
 // HU-20: Listado de Profesionales con filtro por ubicación (inteligente)
+// HU-20: Listado de Profesionales con filtro por ubicación + búsqueda combinada (Robusto)
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession, provinceId, cityId } = req.query;
 
