@@ -997,7 +997,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
 
-// HU-20: Listado de Profesionales con filtro por ubicación (inteligente)
+// HU-20: Listado de Profesionales con filtro combinado (Ubicación + Búsqueda)
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession, provinceId, cityId } = req.query;
 
@@ -1007,36 +1007,31 @@ app.get('/professionals', async (req: any, res: any) => {
       status: 'APPROVED'
     };
 
+    // Filtro por profesión específica
     if (profession) {
       where.profession = { contains: profession as string, mode: 'insensitive' };
     }
 
-    // Filtro por ubicación (prioridad en Professional, fallback en User)
+    // Filtro por ubicación (Provincia y/o Ciudad)
     if (provinceId || cityId) {
-      where.OR = [];
+      where.AND = where.AND || [];
 
-      // Buscar directamente en Professional
-      const professionalFilter: any = {};
-      if (provinceId) professionalFilter.provinceId = provinceId;
-      if (cityId) professionalFilter.cityId = cityId;
+      const locationFilter: any = {};
+      if (provinceId) locationFilter.provinceId = provinceId;
+      if (cityId) locationFilter.cityId = cityId;
 
-      where.OR.push(professionalFilter);
-
-      // Fallback: buscar en User (para profesionales que aún no tienen los datos migrados)
-      where.OR.push({
-        user: {
-          ...(provinceId && { provinceId }),
-          ...(cityId && { cityId })
-        }
-      });
+      where.AND.push(locationFilter);
     }
 
+    // Filtro de búsqueda por nombre o profesión
     if (search) {
-      where.OR = where.OR || [];
-      where.OR.push(
-        { fullName: { contains: search as string, mode: 'insensitive' } },
-        { profession: { contains: search as string, mode: 'insensitive' } }
-      );
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { fullName: { contains: search as string, mode: 'insensitive' } },
+          { profession: { contains: search as string, mode: 'insensitive' } }
+        ]
+      });
     }
 
     const professionals = await prisma.professional.findMany({
@@ -1059,6 +1054,8 @@ app.get('/professionals', async (req: any, res: any) => {
         { createdAt: 'desc' }
       ],
     });
+
+    console.log(`📍 Filtros aplicados → Provincia: ${provinceId}, Ciudad: ${cityId}, Search: ${search}`);
 
     res.json({
       message: 'Profesionales disponibles',
