@@ -1003,7 +1003,6 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
   try {
     const where: any = { 
-      isActive: true,
       status: 'APPROVED'
     };
 
