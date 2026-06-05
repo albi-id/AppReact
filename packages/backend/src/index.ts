@@ -1021,6 +1021,15 @@ app.get('/professionals', async (req: any, res: any) => {
       if (cityId) locationFilter.cityId = cityId;
 
       where.AND.push(locationFilter);
+      
+ // Fallback: buscar en User (para profesionales que aún no tienen los datos migrados)
+      where.OR.push({
+        user: {
+          ...(provinceId && { provinceId }),
+          ...(cityId && { cityId })
+        }
+      });
+
     }
 
     // Filtro de búsqueda por nombre o profesión
