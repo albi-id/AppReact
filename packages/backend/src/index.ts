@@ -1457,7 +1457,7 @@ app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
 
 // ==================== REGISTRO DE USUARIO ====================
 app.post('/register', async (req: any, res: any) => {
-  const { id, email, firstName, lastName, address, photoUrl } = req.body;
+  const { id, email, firstName, lastName, address, photoUrl,provinceId,cityId } = req.body;
 
   try {
     // Crear o actualizar usuario en Prisma
@@ -1468,6 +1468,8 @@ app.post('/register', async (req: any, res: any) => {
         lastName: lastName?.trim() || null,
         address: address?.trim() || null,
         photoUrl: photoUrl || null,
+        provinceId: provinceId || null,
+        cityId: cityId || null,
       },
       create: {
         id,
@@ -1478,6 +1480,8 @@ app.post('/register', async (req: any, res: any) => {
         lastName: lastName?.trim() || null,
         address: address?.trim() || null,
         photoUrl: photoUrl || null,
+        provinceId: provinceId || null,
+        cityId: cityId || null,
       },
     });
 
