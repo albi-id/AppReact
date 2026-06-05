@@ -998,6 +998,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 // =============================================
 
 // HU-20: Listado de Profesionales Destacados
+// HU-20: Listado de Profesionales con filtro por ubicación (inteligente)
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession, provinceId, cityId } = req.query;
 
@@ -1010,20 +1011,33 @@ app.get('/professionals', async (req: any, res: any) => {
     if (profession) {
       where.profession = { contains: profession as string, mode: 'insensitive' };
     }
-    
-    if (provinceId) {
-      where.provinceId = provinceId;
-    }
 
-    if (cityId) {
-      where.cityId = cityId;
+    // Filtro por ubicación (prioridad en Professional, fallback en User)
+    if (provinceId || cityId) {
+      where.OR = [];
+
+      // Buscar directamente en Professional
+      const professionalFilter: any = {};
+      if (provinceId) professionalFilter.provinceId = provinceId;
+      if (cityId) professionalFilter.cityId = cityId;
+
+      where.OR.push(professionalFilter);
+
+      // Fallback: buscar en User (para profesionales que aún no tienen los datos migrados)
+      where.OR.push({
+        user: {
+          ...(provinceId && { provinceId }),
+          ...(cityId && { cityId })
+        }
+      });
     }
 
     if (search) {
-      where.OR = [
+      where.OR = where.OR || [];
+      where.OR.push(
         { fullName: { contains: search as string, mode: 'insensitive' } },
-        { profession: { contains: search as string, mode: 'insensitive' } },
-      ];
+        { profession: { contains: search as string, mode: 'insensitive' } }
+      );
     }
 
     const professionals = await prisma.professional.findMany({
@@ -1034,7 +1048,9 @@ app.get('/professionals', async (req: any, res: any) => {
             id: true, 
             firstName: true, 
             lastName: true,
-            photoUrl: true
+            photoUrl: true,
+            provinceId: true,
+            cityId: true
           }
         }
       },
@@ -1044,13 +1060,14 @@ app.get('/professionals', async (req: any, res: any) => {
         { createdAt: 'desc' }
       ],
     });
-    
- res.json({
+
+    res.json({
       message: 'Profesionales disponibles',
       professionals,
       total: professionals.length,
+      filters: { provinceId, cityId, search }
     });
-    
+
   } catch (error: any) {
     console.error('💥 [PROFESSIONALS] Error:', error);
     res.status(500).json({ error: 'Error interno al obtener profesionales' });
