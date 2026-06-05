@@ -994,11 +994,10 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
   }
 });
 // =============================================
-// PROFESIONALES DESTACADOS 
+// PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
 
 // HU-20: Listado de Profesionales con filtro por ubicación (inteligente)
-// HU-20: Listado de Profesionales con filtro por ubicación + búsqueda combinada (Robusto)
 app.get('/professionals', async (req: any, res: any) => {
   const { search, profession, provinceId, cityId } = req.query;
 
@@ -1008,51 +1007,36 @@ app.get('/professionals', async (req: any, res: any) => {
       status: 'APPROVED'
     };
 
-    // ==================== FILTRO POR UBICACIÓN (AND) ====================
+    if (profession) {
+      where.profession = { contains: profession as string, mode: 'insensitive' };
+    }
+
+    // Filtro por ubicación (prioridad en Professional, fallback en User)
     if (provinceId || cityId) {
-      where.AND = [];
+      where.OR = [];
 
-      const locationFilter: any = {};
+      // Buscar directamente en Professional
+      const professionalFilter: any = {};
+      if (provinceId) professionalFilter.provinceId = provinceId;
+      if (cityId) professionalFilter.cityId = cityId;
 
-      if (provinceId) locationFilter.provinceId = provinceId;
-      if (cityId) locationFilter.cityId = cityId;
+      where.OR.push(professionalFilter);
 
-      where.AND.push(locationFilter);
-
-      // Fallback: buscar también en la tabla User (para profesionales sin datos migrados)
-      where.AND.push({
-        OR: [
-          locationFilter, // Buscar en Professional
-          {
-            user: {
-              ...(provinceId && { provinceId }),
-              ...(cityId && { cityId })
-            }
-          }
-        ]
+      // Fallback: buscar en User (para profesionales que aún no tienen los datos migrados)
+      where.OR.push({
+        user: {
+          ...(provinceId && { provinceId }),
+          ...(cityId && { cityId })
+        }
       });
     }
 
-    // ==================== FILTRO POR BÚSQUEDA ====================
-    if (search || profession) {
-      where.AND = where.AND || [];
-      
-      const searchFilter: any = { OR: [] };
-
-      if (search) {
-        searchFilter.OR.push(
-          { fullName: { contains: search as string, mode: 'insensitive' } },
-          { profession: { contains: search as string, mode: 'insensitive' } }
-        );
-      }
-
-      if (profession) {
-        searchFilter.OR.push(
-          { profession: { contains: profession as string, mode: 'insensitive' } }
-        );
-      }
-
-      where.AND.push(searchFilter);
+    if (search) {
+      where.OR = where.OR || [];
+      where.OR.push(
+        { fullName: { contains: search as string, mode: 'insensitive' } },
+        { profession: { contains: search as string, mode: 'insensitive' } }
+      );
     }
 
     const professionals = await prisma.professional.findMany({
@@ -1080,7 +1064,7 @@ app.get('/professionals', async (req: any, res: any) => {
       message: 'Profesionales disponibles',
       professionals,
       total: professionals.length,
-      filters: { provinceId, cityId, search, profession }
+      filters: { provinceId, cityId, search }
     });
 
   } catch (error: any) {
