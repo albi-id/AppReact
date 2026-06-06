@@ -1610,6 +1610,52 @@ app.post('/services/create', authenticate, async (req: any, res: any) => {
   }
 });
 
+// Obtener todas las conversaciones del usuario
+app.get('/services/my-conversations', authenticate, async (req: any, res: any) => {
+  const userId = req.user.id;
+
+  try {
+    const services = await prisma.service.findMany({
+      where: {
+        OR: [
+          { requesterId: userId },
+          { professional: { userId: userId } }
+        ]
+      },
+      include: {
+        requester: {
+          select: { id: true, firstName: true, lastName: true }
+        },
+        professional: {
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true }
+            }
+          }
+        },
+        messages: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            sender: true
+          }
+        }
+      },
+      orderBy: {
+        id: 'desc'     // ← Cambiado a createdAt (más seguro)
+        // Alternativas: 
+        // id: 'desc'
+        // type: 'asc'
+      }
+    });
+
+    res.json(services);
+  } catch (error) {
+    console.error('Error al obtener conversaciones:', error);
+    res.status(500).json({ error: 'Error al obtener conversaciones' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
