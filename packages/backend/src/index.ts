@@ -1587,6 +1587,29 @@ app.get('/cities', async (req: any, res: any) => {
   }
 });
 
+// Crear un nuevo servicio
+app.post('/services/create', authenticate, async (req: any, res: any) => {
+  const { professionalId, type } = req.body;
+  const userId = req.user.id;
+
+  try {
+    const service = await prisma.service.create({
+      data: {
+        requesterId: userId,
+        professionalId: professionalId,
+        type: type || 'Consulta General',
+        status: 'COMPLETED' // o 'active'
+      },
+      include: { professional: true }
+    });
+
+    res.status(201).json({ service });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al crear servicio' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
