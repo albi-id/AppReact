@@ -819,7 +819,7 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
     const updated = await prisma.professional.update({
       where: { userId: req.user.id },
       data: {
-        lastLocation: { lat, lng },
+        lastLocation: `POINT(${lng} ${lat})`,
         updatedAt: new Date(),
       },
     });
@@ -840,7 +840,7 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  const { type, pickupLat, pickupLng, pickupAddress, city, province } = req.body;
+  const { type, pickupLat, pickupLng, pickupAddress, cityId, provinceId } = req.body;
 
   console.log("🚀 [REQUEST] Solicitud recibida - Type:", type);
 
@@ -849,7 +849,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
-    if (!type || !pickupLat || !pickupLng || !city || !province) {
+    if (!type || !pickupLat || !pickupLng || !cityId || !provinceId) {
       return res.status(400).json({ error: 'type, pickupLat, pickupLng, city y province son obligatorios' });
     }
 
@@ -876,8 +876,8 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         pickupLat: Number(pickupLat),
         pickupLng: Number(pickupLng),
         pickupAddress: pickupAddress || null,
-        city: city,
-        province: province,
+        cityId: cityId,
+        provinceId: provinceId,
         status: 'REQUESTED',
         requestedAt: new Date(),
       },
@@ -902,19 +902,19 @@ const professionals = await prisma.$queryRawUnsafe<any[]>(`
       WHERE p."isActive" = true 
         AND p.status = 'APPROVED'
         AND p.profession = $3
-        AND p.city = $4
-        AND p.province = $5
+        AND p.cityId = $4
+        AND p.provinceId = $5
       ORDER BY "distanceKm" ASC
       LIMIT 8;
-    `, pickupLat, pickupLng, type, city, province);
+    `, pickupLat, pickupLng, type, cityId, provinceId);
 
   if (!professionals?.length) {
-        console.log(`⚠️ No hay profesionales de ${type} en ${city}, ${province}`);
+        console.log(`⚠️ No hay profesionales de ${type} en ${cityId}, ${provinceId}`);
       return res.status(201).json({
         message: 'Servicio solicitado correctamente',
         serviceId: newService.id,
         status: 'REQUESTED',
-        warning: `No hay profesionales de ${type} disponibles en ${city} (${province}).`
+        warning: `No hay profesionales de ${type} disponibles en ${cityId} (${provinceId}).`
       });
     }
 
@@ -938,8 +938,8 @@ const professionals = await prisma.$queryRawUnsafe<any[]>(`
       serviceId: newService.id,
       assignedTo: bestMatch.fullName,
       distanceKm: distance,
-      city,
-      province
+      cityId,
+      provinceId
     });
 
   } catch (error: any) {
