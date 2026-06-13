@@ -91,6 +91,8 @@ model Service {
   requesterId String
   professionalId String?
   type String
+  pickupLat Float?
+  pickupLng Float?
   pickupLocation Unsupported("gis.geography(Point, 4326)")?
   status ServiceStatus @default(REQUESTED)
   amount Float?
