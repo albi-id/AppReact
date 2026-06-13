@@ -816,13 +816,13 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
       return res.status(403).json({ error: 'Solo profesionales pueden actualizar ubicación' });
     }
 
-    const updated = await prisma.professional.update({
-      where: { userId: req.user.id },
-      data: {
-        lastLocation: `POINT(${lng} ${lat})`,
-        updatedAt: new Date(),
-      },
-    });
+  // Actualización con raw query (la forma correcta con geography)
+    await prisma.$executeRawUnsafe(`
+      UPDATE "professionals"
+      SET "lastLocation" = ST_MakePoint(${lng}, ${lat})::geography,
+          "updatedAt" = NOW()
+      WHERE "userId" = $1
+    `, req.user.id);
 
     console.log(`📍 Profesional ${req.user.id} actualizó ubicación: (${lat}, ${lng})`);
 
