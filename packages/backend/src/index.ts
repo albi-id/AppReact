@@ -399,8 +399,8 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
         professionalId: true,
         pickupLat: true,
         pickupLng: true,
-        city: true,
-        province: true
+        cityId: true,
+        provinceId: true
       }
     });
 
@@ -435,17 +435,17 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       WHERE p."isActive" = true 
         AND p.status = 'APPROVED'
         AND p.profession = ${service.type}
-        AND p.city = ${service.city}
-        AND p.province = ${service.province}
+        AND p.cityId = ${service.cityId}
+        AND p.provinceId = ${service.provinceId}
         AND p.id != ${professional.id}
       ORDER BY "distanceKm" ASC
       LIMIT 5;
     `);
 
     if (candidates.length === 0) {
-      console.log(`⚠️ [REJECT] No hay más profesionales de ${service.type} en ${service.city}, ${service.province}`);
+      console.log(`⚠️ [REJECT] No hay más profesionales de ${service.type} en ${service.cityId}, ${service.provinceId}`);
       return res.json({ 
-        message: `Oferta rechazada. No hay más profesionales de ${service.type} disponibles en ${service.city} (${service.province}).` 
+        message: `Oferta rechazada. No hay más profesionales de ${service.type} disponibles en ${service.cityId} (${service.provinceId}).` 
       });
     }
 

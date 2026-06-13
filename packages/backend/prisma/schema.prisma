@@ -94,6 +94,9 @@ model Service {
   pickupLat Float?
   pickupLng Float?
   pickupLocation Unsupported("gis.geography(Point, 4326)")?
+  pickupAddress   String?
+  provinceId String? // ← Agregar
+  cityId String? // ← Agregar
   status ServiceStatus @default(REQUESTED)
   amount Float?
   rating Int?
