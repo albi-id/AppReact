@@ -42,7 +42,7 @@ model User {
   lastName String?
   photoUrl String?
   address String?
-  lastLocation Json? // { lat: number, lng: number } ← Agregar esto
+  lastLocation  Unsupported("gis.geography(Point, 4326)")?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   provinceId String?
@@ -74,7 +74,7 @@ model Professional {
   status ProfessionalStatus @default(PENDING)
   modalities Modality[]
   vehicleType String?
-  lastLocation Json? // { lat: number, lng: number }
+  lastLocation  Unsupported("gis.geography(Point, 4326)")?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   provinceId String? // ← Agregar
@@ -91,8 +91,7 @@ model Service {
   requesterId String
   professionalId String?
   type String
-  pickupLat Float?
-  pickupLng Float?
+  pickupLocation Unsupported("gis.geography(Point, 4326)")?
   status ServiceStatus @default(REQUESTED)
   amount Float?
   rating Int?
