@@ -127,59 +127,39 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
 // HU-5: Mis servicios solicitados (para USER) - Con distancia calculada
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
-    const services = await prisma.service.findMany({
-      where: { 
-        requesterId: req.user.id 
-      },
-      include: {
-        professional: {
-          select: { 
-            id: true,
-            fullName: true,
-            profession: true,
-            lastLocation: true   // Necesario para calcular distancia
-          }
-        }
-      },
-      orderBy: { 
-        requestedAt: 'desc' 
-      },
-    });
-
-    // Función Haversine para calcular distancia
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371; // Radio de la Tierra en km
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = 
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon/2) * Math.sin(dLon/2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
+    const services = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
+        s.*,
+        p.id as "professionalId",
+        p."fullName",
+        p.profession,
+        p.rating,
+        p."reviewCount",
+        p."lastLocation",
+        ST_Distance(
+          ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
+          p."lastLocation"::geography
+        ) / 1000 as "distanceKm"
+      FROM "services" s
+      LEFT JOIN "professionals" p ON p.id = s."professionalId"
+      WHERE s."requesterId" = $1
+      ORDER BY s."requestedAt" DESC;
+    `, req.user.id);
 
     const formattedServices = services.map(service => {
-      let distanceKm = 0;
-
-      if (service.pickupLat && service.pickupLng && service.professional?.lastLocation) {
-        const loc = service.professional.lastLocation as any;
-        if (loc?.lat && loc?.lng) {
-          distanceKm = parseFloat(getDistance(
-            service.pickupLat, 
-            service.pickupLng, 
-            loc.lat, 
-            loc.lng
-          ).toFixed(2));
-        }
-      }
+      const distanceKm = service.distanceKm 
+        ? parseFloat(service.distanceKm).toFixed(2) 
+        : 0;
 
       return {
         ...service,
-        professional: service.professional ? {
-          ...service.professional,
-          fullName: service.professional.fullName || 'Profesional'
+        professional: service.professionalId ? {
+          id: service.professionalId,
+          fullName: service.fullName || 'Profesional',
+          profession: service.profession,
+          lastLocation: service.lastLocation,
         } : null,
-        distanceKm,   // ← Nueva información útil
+        distanceKm: Number(distanceKm),
       };
     });
 
@@ -232,64 +212,45 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
       });
     }
 
-    const services = await prisma.service.findMany({
-      where: { 
-        professionalId: professional.id,
-        status: { 
-          in: ['OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED'] 
-        }
-      },
-      include: {
-        requester: {
-          select: { 
-            id: true, 
-            firstName: true, 
-            lastName: true, 
-            email: true
-          }
-        }
-      },
-      orderBy: { requestedAt: 'desc' },
-    });
+// ==================== CONSULTA CON POSTGIS ====================
+    const services = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
+        s.*,
+        r.id as "requesterId",
+        r."firstName",
+        r."lastName",
+        r.email,
+        ST_Distance(
+          ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
+          p."lastLocation"::geography
+        ) / 1000 as "distanceKm"
+      FROM "services" s
+      LEFT JOIN "users" r ON r.id = s."requesterId"
+      LEFT JOIN "professionals" p ON p.id = s."professionalId"
+      WHERE s."professionalId" = $1
+        AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED')
+      ORDER BY s."requestedAt" DESC;
+    `, professional.id);
 
-    // Función Haversine para calcular distancia
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371; // Radio de la Tierra en km
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = 
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon/2) * Math.sin(dLon/2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-
-    // Formateo + Cálculo de distancia
+    // Formateo manteniendo la misma estructura que tenías
     const formattedServices = services.map(service => {
-      let distanceKm = 0;
-
-      if (service.pickupLat && service.pickupLng && professional.lastLocation) {
-        const loc = professional.lastLocation as any;
-        if (loc?.lat && loc?.lng) {
-          distanceKm = parseFloat(getDistance(
-            loc.lat, 
-            loc.lng, 
-            service.pickupLat, 
-            service.pickupLng
-          ).toFixed(2));
-        }
-      }
+      const distanceKm = service.distanceKm 
+        ? parseFloat(service.distanceKm).toFixed(2) 
+        : 0;
 
       return {
         ...service,
-        requester: service.requester ? {
-          ...service.requester,
-          fullName: [service.requester.firstName, service.requester.lastName]
+        requester: service.requesterId ? {
+          id: service.requesterId,
+          firstName: service.firstName,
+          lastName: service.lastName,
+          email: service.email,
+          fullName: [service.firstName, service.lastName]
             .filter(Boolean)
             .join(' ')
             .trim() || 'Usuario'
         } : null,
-        distanceKm,                    // ← Distancia desde profesional hasta pickup
+        distanceKm: Number(distanceKm),
       };
     });
 
@@ -430,7 +391,17 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
     }
 
     const service = await prisma.service.findUnique({
-      where: { id: serviceId }
+      where: { id: serviceId },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        professionalId: true,
+        pickupLat: true,
+        pickupLng: true,
+        city: true,
+        province: true
+      }
     });
 
     if (!service || service.professionalId !== professional.id || service.status !== 'OFFERED') {
@@ -448,48 +419,37 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       }
     });
 
-    // ==================== BUSCAR SIGUIENTE PROFESIONAL ====================
-    const professionals = await prisma.professional.findMany({
-      where: {
-        isActive: true,
-        status: 'APPROVED',
-        profession: service.type,           // ← Filtrado por profesión exacta
-        id: { not: professional.id }        // Excluir al que rechazó
-      },
-      include: { user: true }
-    });
+    // ==================== BUSCAR SIGUIENTE PROFESIONAL CON POSTGIS ====================
+    const candidates = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
+        p.id,
+        p."fullName",
+        p.profession,
+        p.rating,
+        p."lastLocation",
+        ST_Distance(
+          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
+          p."lastLocation"::geography
+        ) / 1000 as "distanceKm"
+      FROM "professionals" p
+      WHERE p."isActive" = true 
+        AND p.status = 'APPROVED'
+        AND p.profession = ${service.type}
+        AND p.city = ${service.city}
+        AND p.province = ${service.province}
+        AND p.id != ${professional.id}
+      ORDER BY "distanceKm" ASC
+      LIMIT 5;
+    `);
 
-    if (professionals.length === 0) {
-      console.log(`⚠️ [REJECT] No hay más profesionales de ${service.type} disponibles`);
+    if (candidates.length === 0) {
+      console.log(`⚠️ [REJECT] No hay más profesionales de ${service.type} en ${service.city}, ${service.province}`);
       return res.json({ 
-        message: `Oferta rechazada. No hay más profesionales de ${service.type} disponibles.` 
+        message: `Oferta rechazada. No hay más profesionales de ${service.type} disponibles en ${service.city} (${service.province}).` 
       });
     }
 
-    console.log(`📍 [REJECT] Encontrados ${professionals.length} profesionales de ${service.type}`);
-
-    // Función Haversine
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-
-    // Calcular distancia y ordenar
-    const candidates = professionals
-      .map(p => {
-        const loc = p.lastLocation as any;
-        const distance = loc?.lat && loc?.lng 
-          ? getDistance(service.pickupLat!, service.pickupLng!, loc.lat, loc.lng) 
-          : Infinity;
-        
-        return { professional: p, distance };
-      })
-      .sort((a, b) => a.distance - b.distance);
-
-    const next = candidates[0].professional;
+    const next = candidates[0];
 
     // Reasignar servicio
     const updated = await prisma.service.update({
@@ -500,13 +460,15 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       }
     });
 
-    console.log(`✅ [REASSIGN] Reasignado a ${next.fullName} - Distancia: ${candidates[0].distance.toFixed(2)} km`);
+    const distanceKm = parseFloat(next.distanceKm).toFixed(2);
+
+    console.log(`✅ [REASSIGN] Reasignado a ${next.fullName} - Distancia: ${distanceKm} km`);
 
     res.json({
       message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
       nextProfessionalId: next.id,
       nextProfessionalName: next.fullName,
-      distanceKm: candidates[0].distance.toFixed(2)
+      distanceKm: distanceKm
     });
 
   } catch (error: any) {
@@ -878,7 +840,7 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  const { type, pickupLat, pickupLng } = req.body;
+  const { type, pickupLat, pickupLng, pickupAddress, city, province } = req.body;
 
   console.log("🚀 [REQUEST] Solicitud recibida - Type:", type);
 
@@ -887,8 +849,8 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
-    if (!type || !pickupLat || !pickupLng) {
-      return res.status(400).json({ error: 'type, pickupLat y pickupLng son obligatorios' });
+    if (!type || !pickupLat || !pickupLng || !city || !province) {
+      return res.status(400).json({ error: 'type, pickupLat, pickupLng, city y province son obligatorios' });
     }
 
     // ==================== VERIFICACIÓN DE SERVICIO ACTIVO ====================
@@ -913,6 +875,9 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         type: type as any,
         pickupLat: Number(pickupLat),
         pickupLng: Number(pickupLng),
+        pickupAddress: pickupAddress || null,
+        city: city,
+        province: province,
         status: 'REQUESTED',
         requestedAt: new Date(),
       },
@@ -920,54 +885,42 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     console.log(`✅ [REQUEST] Servicio creado - ID: ${newService.id}`);
 
-    // ==================== MATCHING INTELIGENTE ====================
-    const professionals = await prisma.professional.findMany({
-      where: {
-        isActive: true,
-        status: 'APPROVED',
-        profession: type,                    // ← Filtrar por profesión exacta
-      },
-      include: {
-        user: true
-      }
-    });
+// ==================== MATCHING CON POSTGIS (misma ciudad + provincia) ====================//
+const professionals = await prisma.$queryRawUnsafe<any[]>(`
+        SELECT 
+        p.id,
+        p."fullName",
+        p.profession,
+        p.rating,
+        p."reviewCount",
+        p."lastLocation",
+        ST_Distance(
+          ST_MakePoint($2::float, $1::float)::geography,
+          p."lastLocation"::geography
+        ) / 1000 as "distanceKm"
+      FROM "professionals" p
+      WHERE p."isActive" = true 
+        AND p.status = 'APPROVED'
+        AND p.profession = $3
+        AND p.city = $4
+        AND p.province = $5
+      ORDER BY "distanceKm" ASC
+      LIMIT 8;
+    `, pickupLat, pickupLng, type, city, province);
 
-    if (professionals.length === 0) {
-      console.log(`⚠️ No hay profesionales de ${type} disponibles`);
+  if (!professionals?.length) {
+        console.log(`⚠️ No hay profesionales de ${type} en ${city}, ${province}`);
       return res.status(201).json({
         message: 'Servicio solicitado correctamente',
         serviceId: newService.id,
-        warning: 'No hay profesionales disponibles en este momento'
+        status: 'REQUESTED',
+        warning: `No hay profesionales de ${type} disponibles en ${city} (${province}).`
       });
     }
 
-    // Función de distancia (Haversine)
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371; // Radio de la Tierra en km
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = 
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon/2) * Math.sin(dLon/2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
+    const bestMatch = professionals[0] as any;
 
-    // Calcular distancia y ordenar
-    const professionalsWithDistance = professionals
-      .map(prof => {
-        const loc = prof.lastLocation as any;
-        const distance = loc && loc.lat && loc.lng 
-          ? getDistance(Number(pickupLat), Number(pickupLng), loc.lat, loc.lng)
-          : Infinity;
-        
-        return { ...prof, distance };
-      })
-      .sort((a, b) => a.distance - b.distance);
-
-    const bestMatch = professionalsWithDistance[0];
-
-    // Asignar al profesional más cercano
+    // Asignar
     await prisma.service.update({
       where: { id: newService.id },
       data: {
@@ -976,13 +929,17 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       }
     });
 
-    console.log(`🎯 [MATCH] Asignado a ${bestMatch.fullName} - Distancia: ${bestMatch.distance.toFixed(2)} km`);
+    const distance = parseFloat(bestMatch.distanceKm).toFixed(2);
+
+    console.log(`🎯 [MATCH] Asignado a ${bestMatch.fullName} - ${distance} km`);
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id,
       assignedTo: bestMatch.fullName,
-      distanceKm: bestMatch.distance.toFixed(2)
+      distanceKm: distance,
+      city,
+      province
     });
 
   } catch (error: any) {
@@ -993,6 +950,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     });
   }
 });
+
 // =============================================
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
