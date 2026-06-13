@@ -842,7 +842,7 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng, pickupAddress, cityId, provinceId } = req.body;
 
-  console.log("🚀 [REQUEST] Solicitud recibida - Type:", type);
+  console.log(`🚀 [REQUEST] Solicitud recibida - Type: ${type} | CityId: ${cityId} | ProvinceId: ${provinceId}`);
 
   try {
     if (req.dbUser.role !== 'USER') {
