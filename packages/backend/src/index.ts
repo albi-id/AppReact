@@ -129,14 +129,30 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
 // HU-5: Mis servicios solicitados (para USER) - Con distancia calculada
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
-    // Versión más segura: evitamos seleccionar directamente geography
     const services = await prisma.$queryRawUnsafe<any[]>(`
       SELECT 
-        s.*,
+        s.id,
+        s."requesterId",
+        s."professionalId",
+        s.type,
+        s."pickupLat",
+        s."pickupLng",
+        s."pickupAddress",
+        s.cityId,
+        s.provinceId,
+        s.status,
+        s.amount,
+        s.rating,
+        s.review,
+        s."requestedAt",
+        s."acceptedAt",
+        s."arrivedAt",
+        s."completedAt",
+        s."paidAt",
         p.id as "professionalId",
         p."fullName",
         p.profession,
-        p.rating,
+        p.rating as "professionalRating",
         p."reviewCount",
         COALESCE(
           ST_Distance(
@@ -152,14 +168,30 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
     `, req.user.id);
 
     const formattedServices = services.map((service: any) => ({
-      ...service,
+      id: service.id,
+      type: service.type,
+      pickupLat: service.pickupLat,
+      pickupLng: service.pickupLng,
+      pickupAddress: service.pickupAddress,
+      cityId: service.cityId,
+      provinceId: service.provinceId,
+      status: service.status,
+      amount: service.amount,
+      rating: service.rating,
+      review: service.review,
+      requestedAt: service.requestedAt,
+      acceptedAt: service.acceptedAt,
+      arrivedAt: service.arrivedAt,
+      completedAt: service.completedAt,
+      paidAt: service.paidAt,
+      
       professional: service.professionalId ? {
         id: service.professionalId,
         fullName: service.fullName || 'Profesional',
         profession: service.profession,
       } : null,
+      
       distanceKm: Number(parseFloat(service.distanceKm || 0).toFixed(2)),
-      lastLocation: null // evitamos problema de deserialización
     }));
 
     console.log(`📋 [SERVICES/MY] Usuario ${req.user.id} tiene ${services.length} servicios`);
@@ -173,7 +205,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
     console.error('💥 [SERVICES/MY] Error:', error);
     res.status(500).json({ 
       error: 'Error interno al cargar servicios',
-      details: error.message || 'Error desconocido'
+      details: error.message || error.toString()
     });
   }
 });
