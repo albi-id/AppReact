@@ -117,6 +117,8 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
       lastName: true,
       photoUrl: true,
       address: true,
+      cityId: true,        // ← Agregar
+      provinceId: true,
     }
   });
 
