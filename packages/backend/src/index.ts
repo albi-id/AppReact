@@ -129,6 +129,7 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
 // HU-5: Mis servicios solicitados (para USER) - Con distancia calculada
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
+    // Versión más segura: evitamos seleccionar directamente geography
     const services = await prisma.$queryRawUnsafe<any[]>(`
       SELECT 
         s.*,
@@ -137,7 +138,6 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         p.profession,
         p.rating,
         p."reviewCount",
-        p."lastLocation"::text as "lastLocation",           -- Cast seguro
         COALESCE(
           ST_Distance(
             ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
@@ -151,24 +151,16 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       ORDER BY s."requestedAt" DESC;
     `, req.user.id);
 
-    // Formateo seguro
-    const formattedServices = services.map((service: any) => {
-      const distanceKm = service.distanceKm 
-        ? parseFloat(service.distanceKm) 
-        : 0;
-
-      return {
-        ...service,
-        lastLocation: service.lastLocation, // ya es texto
-        professional: service.professionalId ? {
-          id: service.professionalId,
-          fullName: service.fullName || 'Profesional',
-          profession: service.profession,
-          lastLocation: service.lastLocation,
-        } : null,
-        distanceKm: Number(distanceKm.toFixed(2)),
-      };
-    });
+    const formattedServices = services.map((service: any) => ({
+      ...service,
+      professional: service.professionalId ? {
+        id: service.professionalId,
+        fullName: service.fullName || 'Profesional',
+        profession: service.profession,
+      } : null,
+      distanceKm: Number(parseFloat(service.distanceKm || 0).toFixed(2)),
+      lastLocation: null // evitamos problema de deserialización
+    }));
 
     console.log(`📋 [SERVICES/MY] Usuario ${req.user.id} tiene ${services.length} servicios`);
 
@@ -181,7 +173,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
     console.error('💥 [SERVICES/MY] Error:', error);
     res.status(500).json({ 
       error: 'Error interno al cargar servicios',
-      details: error.message || error.toString()
+      details: error.message || 'Error desconocido'
     });
   }
 });
