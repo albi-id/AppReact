@@ -137,7 +137,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         p.profession,
         p.rating,
         p."reviewCount",
-        p."lastLocation",
+        p."lastLocation"::text as "lastLocation",
         ST_Distance(
           ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
           p."lastLocation"::geography
