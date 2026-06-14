@@ -137,31 +137,36 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         p.profession,
         p.rating,
         p."reviewCount",
-        p."lastLocation"::text as "lastLocation",
-        ST_Distance(
-          ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
-          p."lastLocation"::geography
-        ) / 1000 as "distanceKm"
+        p."lastLocation"::text as "lastLocation",           -- Cast seguro
+        COALESCE(
+          ST_Distance(
+            ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
+            p."lastLocation"::geography
+          ) / 1000,
+          0
+        ) as "distanceKm"
       FROM "services" s
       LEFT JOIN "professionals" p ON p.id = s."professionalId"
       WHERE s."requesterId" = $1
       ORDER BY s."requestedAt" DESC;
     `, req.user.id);
 
-    const formattedServices = services.map(service => {
+    // Formateo seguro
+    const formattedServices = services.map((service: any) => {
       const distanceKm = service.distanceKm 
-        ? parseFloat(service.distanceKm).toFixed(2) 
+        ? parseFloat(service.distanceKm) 
         : 0;
 
       return {
         ...service,
+        lastLocation: service.lastLocation, // ya es texto
         professional: service.professionalId ? {
           id: service.professionalId,
           fullName: service.fullName || 'Profesional',
           profession: service.profession,
           lastLocation: service.lastLocation,
         } : null,
-        distanceKm: Number(distanceKm),
+        distanceKm: Number(distanceKm.toFixed(2)),
       };
     });
 
@@ -176,7 +181,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
     console.error('💥 [SERVICES/MY] Error:', error);
     res.status(500).json({ 
       error: 'Error interno al cargar servicios',
-      details: error.message 
+      details: error.message || error.toString()
     });
   }
 });
