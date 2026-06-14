@@ -879,25 +879,26 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     }
 
     if (!type || !pickupLat || !pickupLng || !cityId || !provinceId) {
-      return res.status(400).json({ error: 'type, pickupLat, pickupLng, city y province son obligatorios' });
+      return res.status(400).json({ 
+        error: 'type, pickupLat, pickupLng, cityId y provinceId son obligatorios' 
+      });
     }
 
     // ==================== VERIFICACIÓN DE SERVICIO ACTIVO ====================
     const activeService = await prisma.service.findFirst({
       where: { 
         requesterId: req.user.id,
-        status: {
-          in: ['REQUESTED', 'OFFERED', 'ACCEPTED', 'ARRIVED']
-        }
+        status: { in: ['REQUESTED', 'OFFERED', 'ACCEPTED', 'ARRIVED'] }
       }
     });
 
     if (activeService) {
       return res.status(409).json({ 
-        error: 'Ya tienes un servicio activo. Debes finalizar o cancelar el actual antes de solicitar uno nuevo.' 
+        error: 'Ya tienes un servicio activo.' 
       });
     }
 
+    // Crear servicio
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
@@ -914,15 +915,12 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     console.log(`✅ [REQUEST] Servicio creado - ID: ${newService.id}`);
 
-// ==================== MATCHING CON POSTGIS (misma ciudad + provincia) ====================//
-const professionals = await prisma.$queryRawUnsafe<any[]>(`
-        SELECT 
+    // ==================== MATCHING CON POSTGIS ====================
+    const professionals = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
         p.id,
         p."fullName",
         p.profession,
-        p.rating,
-        p."reviewCount",
-        p."lastLocation",
         ST_Distance(
           ST_MakePoint($2::float, $1::float)::geography,
           p."lastLocation"::geography
@@ -931,36 +929,44 @@ const professionals = await prisma.$queryRawUnsafe<any[]>(`
       WHERE p."isActive" = true 
         AND p.status = 'APPROVED'
         AND p.profession = $3
-        AND p.cityId = $4
-        AND p.provinceId = $5
+        AND p."cityId" = $4
+        AND p."provinceId" = $5
       ORDER BY "distanceKm" ASC
       LIMIT 8;
     `, pickupLat, pickupLng, type, cityId, provinceId);
 
-  if (!professionals?.length) {
-        console.log(`⚠️ No hay profesionales de ${type} en ${cityId}, ${provinceId}`);
+    if (!professionals?.length) {
+      console.log(`⚠️ No hay profesionales en ${cityId}, ${provinceId}`);
       return res.status(201).json({
         message: 'Servicio solicitado correctamente',
         serviceId: newService.id,
         status: 'REQUESTED',
-        warning: `No hay profesionales de ${type} disponibles en ${cityId} (${provinceId}).`
+        warning: `No hay profesionales disponibles en esta zona.`
       });
     }
 
-    const bestMatch = professionals[0] as any;
+    const bestMatch = professionals[0];
 
-    // Asignar
-    await prisma.service.update({
-      where: { id: newService.id },
-      data: {
-        professionalId: bestMatch.id,
-        status: 'OFFERED',
-      }
-    });
+    // ==================== ASIGNAR PROFESIONAL ====================
+    try {
+      await prisma.service.update({
+        where: { id: newService.id },
+        data: {
+          professionalId: bestMatch.id,
+          status: 'OFFERED',
+        }
+      });
 
-    const distance = parseFloat(bestMatch.distanceKm).toFixed(2);
+      console.log(`✅ [MATCH] Asignado correctamente a ${bestMatch.fullName} (ID: ${bestMatch.id})`);
 
-    console.log(`🎯 [MATCH] Asignado a ${bestMatch.fullName} - ${distance} km`);
+    } catch (updateError) {
+      console.error("❌ Error al asignar professionalId:", updateError);
+      // No devolvemos error 500, solo informamos
+    }
+
+    const distance = bestMatch.distanceKm 
+      ? parseFloat(bestMatch.distanceKm).toFixed(2) 
+      : "0.00";
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
@@ -972,7 +978,7 @@ const professionals = await prisma.$queryRawUnsafe<any[]>(`
     });
 
   } catch (error: any) {
-    console.error("💥 [REQUEST] Error:", error);
+    console.error("💥 [REQUEST] Error general:", error);
     res.status(500).json({ 
       error: 'Error interno al solicitar servicio',
       details: error.message 
