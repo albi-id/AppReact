@@ -244,15 +244,33 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
 // ==================== CONSULTA CON POSTGIS ====================
     const services = await prisma.$queryRawUnsafe<any[]>(`
       SELECT 
-        s.*,
+        s.id,
+        s."requesterId",
+        s."professionalId",
+        s.type,
+        s."pickupLat",
+        s."pickupLng",
+        s."pickupAddress", 
+        s.status,
+        s.amount,
+        s.rating,
+        s.review,
+        s."requestedAt",
+        s."acceptedAt",
+        s."arrivedAt",
+        s."completedAt",
+        s."paidAt",
         r.id as "requesterId",
         r."firstName",
         r."lastName",
         r.email,
-        ST_Distance(
-          ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
-          p."lastLocation"::geography
-        ) / 1000 as "distanceKm"
+        COALESCE(
+          ST_Distance(
+            ST_MakePoint(s."pickupLng"::float, s."pickupLat"::float)::geography,
+            p."lastLocation"::geography
+          ) / 1000,
+          0
+        ) as "distanceKm"
       FROM "services" s
       LEFT JOIN "users" r ON r.id = s."requesterId"
       LEFT JOIN "professionals" p ON p.id = s."professionalId"
