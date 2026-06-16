@@ -931,6 +931,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       });
     }
 
+  
     // Crear servicio
     const newService = await prisma.service.create({
       data: {
@@ -1646,11 +1647,27 @@ app.get('/cities', async (req: any, res: any) => {
 });
 
 // Crear un nuevo servicio
+/*
 app.post('/services/create', authenticate, async (req: any, res: any) => {
   const { professionalId, type } = req.body;
   const userId = req.user.id;
 
   try {
+
+    if (req.dbUser.role === 'PROFESSIONAL') {
+  const targetProfessionalId = req.body.professionalId; // o como lo estés recibiendo
+
+  const myProfile = await prisma.professional.findUnique({
+    where: { userId: req.user.id }
+  });
+
+  if (myProfile && myProfile.id === targetProfessionalId) {
+    return res.status(400).json({ 
+      error: 'No puedes enviarte un mensaje a ti mismo' 
+    });
+  }
+}
+
     const service = await prisma.service.create({
       data: {
         requesterId: userId,
@@ -1667,7 +1684,7 @@ app.post('/services/create', authenticate, async (req: any, res: any) => {
     res.status(500).json({ error: 'Error al crear servicio' });
   }
 });
-
+*/
 
 // Obtener todas las conversaciones del usuario (solo con mensajes)
 app.get('/services/my-conversations', authenticate, async (req: any, res: any) => {
