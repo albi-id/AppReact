@@ -78,6 +78,8 @@ model Professional {
   lastLocation  Unsupported("gis.geography(Point, 4326)")?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  rejectCount     Int      @default(0)
+  lastRejectAt    DateTime?
   provinceId String? // ← Agregar
   cityId String? // ← Agregar
   province Province? @relation(fields: [provinceId], references: [id]) // ← Agregar
