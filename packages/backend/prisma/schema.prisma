@@ -21,6 +21,7 @@ enum ServiceStatus {
   REJECTED
   PAID
   WAITING
+  CHAT
 }
 enum ProfessionalStatus {
   PENDING
