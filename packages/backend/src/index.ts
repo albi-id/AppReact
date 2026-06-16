@@ -947,6 +947,10 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     });
 
     console.log(`✅ [REQUEST] Servicio creado - ID: ${newService.id}`);
+   
+    if (newService.professionalId) {
+      console.warn(`⚠️ [SECURITY] Se intentó asignar profesionalId al crear servicio`);
+    }
 
     // ==================== MATCHING CON POSTGIS ====================
     const professionals = await prisma.$queryRawUnsafe<any[]>(`
