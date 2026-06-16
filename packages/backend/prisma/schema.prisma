@@ -20,6 +20,7 @@ enum ServiceStatus {
   CANCELLED
   REJECTED
   PAID
+  WAITING
 }
 enum ProfessionalStatus {
   PENDING
@@ -79,7 +80,6 @@ model Professional {
   updatedAt DateTime @updatedAt
   provinceId String? // ← Agregar
   cityId String? // ← Agregar
- 
   province Province? @relation(fields: [provinceId], references: [id]) // ← Agregar
   city City? @relation(fields: [cityId], references: [id]) // ← Agregar
   // Relación con servicios donde este profesional es quien presta el servicio
