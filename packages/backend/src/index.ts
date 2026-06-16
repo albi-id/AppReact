@@ -466,6 +466,20 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       }
     });
 
+        // Después de rechazar
+    await prisma.professional.update({
+      where: { id: professional.id },
+      data: {
+        rejectCount: { increment: 1 },
+        lastRejectAt: new Date(),
+        // Opcional: bajarlo de línea temporalmente isActive: false   
+      }
+    });
+
+    // Si rechaza más de X veces en poco tiempo if (professional.rejectCount >= 5) {
+      // Suspender temporalmente o notificar admin pero actualmente no hace nada mas }
+    
+
     // ==================== BUSCAR SIGUIENTE PROFESIONAL CON POSTGIS ====================
     const candidates = await prisma.$queryRawUnsafe<any[]>(`
       SELECT 
@@ -888,6 +902,7 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng, pickupAddress, cityId, provinceId } = req.body;
+  const MAX_DISTANCE_KM = 10;   // ← Ajustable por tipo de servicio
 
   console.log(`🚀 [REQUEST] Solicitud recibida - Type: ${type} | CityId: ${cityId} | ProvinceId: ${provinceId}`);
 
@@ -945,13 +960,40 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         ) / 1000 as "distanceKm"
       FROM "professionals" p
       WHERE p."isActive" = true 
-        AND p.status = 'APPROVED'
-        AND p.profession = $3
-        AND p."cityId" = $4
-        AND p."provinceId" = $5
-      ORDER BY "distanceKm" ASC
-      LIMIT 8;
-    `, pickupLat, pickupLng, type, cityId, provinceId);
+    AND p.status = 'APPROVED'
+    AND p.profession = $3
+    AND p."cityId" = $4
+    AND p."provinceId" = $5
+    AND ST_DWithin(
+      p."lastLocation"::geography,
+      ST_MakePoint($2, $1)::geography,
+      $6
+    )
+  ORDER BY "distanceKm" ASC
+  LIMIT 8;
+`, 
+  pickupLat, 
+  pickupLng, 
+  type, 
+  cityId, 
+  provinceId,
+  MAX_DISTANCE_KM * 1000   // ← Pasado como parámetro
+);
+
+if (!professionals?.length) {
+    // === MANEJO DE COLA ===
+    await prisma.service.update({
+        where: { id: newService.id },
+        data: { status: 'WAITING' }   // o 'QUEUED'
+    });
+
+    return res.status(201).json({
+        message: 'Servicio en cola',
+        serviceId: newService.id,
+        status: 'WAITING',
+        warning: `No hay profesionales disponibles ahora...`
+    });
+}
 
     if (!professionals?.length) {
       console.log(`⚠️ No hay profesionales en ${cityId}, ${provinceId}`);
@@ -977,6 +1019,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
       console.log(`✅ [MATCH] Asignado correctamente a ${bestMatch.fullName} (ID: ${bestMatch.id})`);
 
+      
     } catch (updateError) {
       console.error("❌ Error al asignar professionalId:", updateError);
       // No devolvemos error 500, solo informamos
