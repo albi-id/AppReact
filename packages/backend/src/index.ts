@@ -1686,6 +1686,58 @@ app.post('/services/create', authenticate, async (req: any, res: any) => {
 });
 */
 
+
+// Encontrar o crear chat entre usuario y profesional
+app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
+  const { professionalId } = req.body;
+  const userId = req.user.id;
+
+  try {
+    if (!professionalId) {
+      return res.status(400).json({ error: 'professionalId es requerido' });
+    }
+
+    // Buscar si ya existe un chat/servicio entre ellos
+    let service = await prisma.service.findFirst({
+      where: {
+        OR: [
+          { 
+            requesterId: userId, 
+            professionalId: professionalId 
+          },
+          { 
+            requesterId: professionalId, 
+            professionalId: userId 
+          }
+        ]
+      }
+    });
+
+    // Si no existe, crear uno nuevo (solo para chat)
+    if (!service) {
+      service = await prisma.service.create({
+        data: {
+          requesterId: userId,
+          professionalId: professionalId,
+          type: 'CHAT',                    // Tipo especial para chat
+          status: 'CHAT',                // O 'CHAT' si quieres agregar el estado
+          requestedAt: new Date(),
+        }
+      });
+      console.log(`💬 Nuevo chat creado entre ${userId} y ${professionalId}`);
+    }
+
+    res.json({ 
+      serviceId: service.id,
+      status: service.status 
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al inicializar chat' });
+  }
+});
+
 // Obtener todas las conversaciones del usuario (solo con mensajes)
 app.get('/services/my-conversations', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
