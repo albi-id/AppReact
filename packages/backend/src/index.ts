@@ -1385,39 +1385,61 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
   const { serviceId } = req.params;
   const { content } = req.body;
 
+  console.log(`📩 [MESSAGE] Intentando enviar mensaje - serviceId: ${serviceId} | Usuario: ${req.user.id}`);
+
   try {
     if (!content?.trim()) {
       return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
     }
 
-    // Traemos el servicio CON las relaciones necesarias
+    if (!serviceId) {
+      return res.status(400).json({ error: 'serviceId es requerido' });
+    }
+
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
       include: {
-        professional: true,     // ← Necesario para verificar
-        requester: true         // ← Necesario para verificar
+        professional: {
+          include: { user: true }
+        },
+        requester: true
       }
     });
 
     if (!service) {
+      console.error(`❌ Servicio no encontrado: ${serviceId}`);
       return res.status(404).json({ error: 'Servicio no encontrado' });
     }
 
-    // Verificar que el usuario sea parte del servicio (requester o professional)
     const isRequester = service.requesterId === req.user.id;
-    const isProfessional = service.professional?.userId === req.user.id;
+    const isProfessional = service.professional?.user?.id === req.user.id;
+
+    console.log(`🔍 Participante - Requester: ${isRequester}, Professional: ${isProfessional}`);
 
     if (!isRequester && !isProfessional) {
       return res.status(403).json({ error: 'No tienes permiso para chatear en este servicio' });
+    }
+
+    // === CORRECCIÓN DEL receiverId ===
+    let receiverId: any;
+
+    if (isRequester) {
+      receiverId = service.professional?.user?.id;
+      if (!receiverId) {
+        return res.status(500).json({ error: 'No se pudo identificar el profesional' });
+      }
+    } else {
+      receiverId = service.requesterId;
+      if (!receiverId) {
+        return res.status(500).json({ error: 'No se pudo identificar el usuario' });
+      }
     }
 
     const message = await prisma.message.create({
       data: {
         serviceId,
         senderId: req.user.id,
-        receiverId: isRequester 
-          ? service.professional!.userId 
-          : service.requesterId,
+        receiverId,
         content: content.trim()
       },
       include: {
@@ -1427,7 +1449,7 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
       }
     });
 
-    console.log(`💬 [MESSAGE] Mensaje enviado en servicio ${serviceId}`);
+    console.log(`✅ Mensaje enviado correctamente en servicio ${serviceId}`);
 
     res.status(201).json({ 
       message: 'Mensaje enviado correctamente',
