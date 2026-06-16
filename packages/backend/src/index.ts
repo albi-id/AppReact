@@ -1787,6 +1787,35 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
   }
 });
 
+// Actualizar ubicación del usuario (para cualquier usuario)
+app.patch('/user/location', authenticate, async (req: any, res: any) => {
+  const { lat, lng } = req.body;
+
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ error: 'lat y lng deben ser números válidos' });
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(`
+      UPDATE "users"
+      SET "lastLocation" = ST_MakePoint(${lng}, ${lat})::geography,
+          "updatedAt" = NOW()
+      WHERE id = $1
+    `, req.user.id);
+
+    console.log(`📍 Usuario ${req.user.id} actualizó ubicación: (${lat}, ${lng})`);
+
+    res.json({
+      message: 'Ubicación actualizada correctamente',
+      location: { lat, lng }
+    });
+
+  } catch (error: any) {
+    console.error('Error actualizando ubicación de usuario:', error);
+    res.status(500).json({ error: 'Error interno al actualizar ubicación' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
