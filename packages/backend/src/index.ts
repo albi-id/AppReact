@@ -1738,7 +1738,7 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
   }
 });
 
-// Obtener todas las conversaciones del usuario (solo con mensajes)
+// Obtener todas las conversaciones del usuario (chats + servicios)
 app.get('/services/my-conversations', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
 
@@ -1749,9 +1749,9 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
           { requesterId: userId },
           { professional: { userId: userId } }
         ],
-        // ← Solo servicios que tengan al menos 1 mensaje
+        // Solo conversaciones que tengan al menos 1 mensaje
         messages: {
-          some: {}   // esto filtra solo los que tienen mensajes
+          some: {}
         }
       },
       include: {
@@ -1774,9 +1774,11 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
         }
       },
       orderBy: {
-        id: 'desc'
+        id: 'desc'   // ← Mejor que por id
       }
     });
+
+    console.log(`📬 [CONVERSATIONS] Usuario ${userId} tiene ${services.length} conversaciones`);
 
     res.json(services);
   } catch (error) {
