@@ -1755,14 +1755,7 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
     } else {
       console.log(`♻️ Servicio encontrado - ID: ${service.id} | Status: ${service.status}`);
       
-      // Si está COMPLETED, podemos reactivarlo
-      if (service.status === 'COMPLETED') {
-        await prisma.service.update({
-          where: { id: service.id },
-          data: { status: 'CHAT' }
-        });
-        console.log(`🔄 Servicio reactivado de COMPLETED a CHAT`);
-      }
+   
     }
 
     res.json({ 
