@@ -1714,12 +1714,14 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
   const { professionalId } = req.body;
   const userId = req.user.id;
 
+  console.log(`🔄 find-or-create chat - User: ${userId} | Professional: ${professionalId}`);
+
   try {
     if (!professionalId) {
       return res.status(400).json({ error: 'professionalId es requerido' });
     }
 
-    // Buscar si ya existe un chat/servicio entre ellos
+    // Búsqueda más amplia para encontrar chats existentes (independiente del status)
     let service = await prisma.service.findFirst({
       where: {
         OR: [
@@ -1735,18 +1737,23 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
       }
     });
 
-    // Si no existe, crear uno nuevo (solo para chat)
+    // Si no existe, crear uno nuevo como CHAT
     if (!service) {
       service = await prisma.service.create({
         data: {
           requesterId: userId,
           professionalId: professionalId,
-          type: 'CHAT',                    // Tipo especial para chat
-          status: 'CHAT',                // O 'CHAT' si quieres agregar el estado
+          type: 'CHAT',
+          status: 'CHAT',
           requestedAt: new Date(),
         }
       });
-      console.log(`💬 Nuevo chat creado entre ${userId} y ${professionalId}`);
+      console.log(`💬 Nuevo chat creado - Service ID: ${service.id}`);
+    } else {
+      console.log(`♻️ Chat/Servicio existente encontrado - Service ID: ${service.id} | Status: ${service.status}`);
+      
+      // Si ya existe pero tiene status diferente, puedes actualizarlo si quieres
+      // await prisma.service.update({ where: { id: service.id }, data: { status: 'CHAT' } });
     }
 
     res.json({ 
@@ -1754,8 +1761,8 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
       status: service.status 
     });
 
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error('❌ Error en find-or-create:', error);
     res.status(500).json({ error: 'Error al inicializar chat' });
   }
 });
