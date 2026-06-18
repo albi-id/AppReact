@@ -1476,7 +1476,7 @@ app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any
         requester: true
       }
     });
-
+ 
     if (!service) {
       console.error(`❌ Servicio no encontrado: ${serviceId}`);
       return res.status(404).json({ error: 'Servicio no encontrado' });
@@ -1721,31 +1721,27 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
   const { professionalId } = req.body;
   const userId = req.user.id;
 
-  console.log(`🔄 find-or-create chat - User: ${userId} | Professional: ${professionalId}`);
+  console.log(`🔄 find-or-create - User: ${userId} | Professional: ${professionalId}`);
 
   try {
     if (!professionalId) {
       return res.status(400).json({ error: 'professionalId es requerido' });
     }
 
-    // Búsqueda más amplia para encontrar chats existentes (independiente del status)
+    // Buscar servicio existente (priorizando los que no estén COMPLETED)
     let service = await prisma.service.findFirst({
       where: {
-        OR: [
-          { 
-            requesterId: userId, 
-            professionalId: professionalId 
-          },
-          { 
-            requesterId: professionalId, 
-            professionalId: userId 
-          }
-        ]
-      }
+        requesterId: userId,
+        professionalId: professionalId,
+      },
+      orderBy: [
+        { status: 'asc' },      // Prioriza ACTIVE, CHAT, etc. sobre COMPLETED
+        { createdAt: 'desc' }
+      ]
     });
 
-    // Si no existe, crear uno nuevo como CHAT
     if (!service) {
+      // Crear nuevo solo si realmente no existe
       service = await prisma.service.create({
         data: {
           requesterId: userId,
@@ -1755,12 +1751,18 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
           requestedAt: new Date(),
         }
       });
-      console.log(`💬 Nuevo chat creado - Service ID: ${service.id}`);
+      console.log(`💬 Nuevo chat creado - ID: ${service.id}`);
     } else {
-      console.log(`♻️ Chat/Servicio existente encontrado - Service ID: ${service.id} | Status: ${service.status}`);
+      console.log(`♻️ Servicio encontrado - ID: ${service.id} | Status: ${service.status}`);
       
-      // Si ya existe pero tiene status diferente, puedes actualizarlo si quieres
-      // await prisma.service.update({ where: { id: service.id }, data: { status: 'CHAT' } });
+      // Si está COMPLETED, podemos reactivarlo
+      if (service.status === 'COMPLETED') {
+        await prisma.service.update({
+          where: { id: service.id },
+          data: { status: 'CHAT' }
+        });
+        console.log(`🔄 Servicio reactivado de COMPLETED a CHAT`);
+      }
     }
 
     res.json({ 
@@ -1769,7 +1771,7 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
     });
 
   } catch (error: any) {
-    console.error('❌ Error en find-or-create:', error);
+    console.error('❌ Error find-or-create:', error);
     res.status(500).json({ error: 'Error al inicializar chat' });
   }
 });
