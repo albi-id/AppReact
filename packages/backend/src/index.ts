@@ -1736,7 +1736,7 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
       },
       orderBy: [
         { status: 'asc' },      // Prioriza ACTIVE, CHAT, etc. sobre COMPLETED
-        { createdAt: 'desc' }
+        { id: 'desc' }
       ]
     });
 
