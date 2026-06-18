@@ -1780,16 +1780,26 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
           { requesterId: userId },
           { professional: { userId: userId } }
         ],
-        messages: { some: {} }   // Solo mostrar las que tienen mensajes
+        messages: { some: {} }
       },
       include: {
         requester: {
-          select: { id: true, firstName: true, lastName: true, avatar: true }
+          select: { 
+            id: true, 
+            firstName: true, 
+            lastName: true 
+            // avatar: true   ← comentado porque no existe en tu modelo
+          }
         },
         professional: {
           include: {
             user: {
-              select: { id: true, firstName: true, lastName: true, avatar: true }
+              select: { 
+                id: true, 
+                firstName: true, 
+                lastName: true 
+                // avatar: true
+              }
             }
           }
         },
@@ -1806,20 +1816,20 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
       orderBy: { id: 'desc' }
     });
 
-    // === AGRUPACIÓN POR PROFESIONAL (lo más importante) ===
+    // === AGRUPACIÓN POR PROFESIONAL ===
     const grouped = new Map();
 
-    conversations.forEach(conv => {
+    conversations.forEach((conv: any) => {
+      // Tomamos el ID del usuario profesional (no el de la tabla Professional)
       const professionalUserId = conv.professional?.user?.id || conv.professionalId;
-      
+
       if (!professionalUserId) return;
 
       if (!grouped.has(professionalUserId)) {
         grouped.set(professionalUserId, conv);
       } else {
-        // Si ya existe, nos quedamos con la conversación más reciente
         const existing = grouped.get(professionalUserId);
-        if (conv.id > existing.updatedAt) {
+        if (new Date(conv.id) > new Date(existing.id)) {
           grouped.set(professionalUserId, conv);
         }
       }
