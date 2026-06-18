@@ -1827,7 +1827,7 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
 
     console.log(`📍 Usuario ${req.user.id} actualizó ubicación: (${lat}, ${lng})`);
 
-    res.json({
+   /* res.json({
       message: 'Ubicación actualizada correctamente',
       location: { lat, lng }
     });
@@ -1835,6 +1835,13 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
   } catch (error: any) {
     console.error('Error actualizando ubicación de usuario:', error);
     res.status(500).json({ error: 'Error interno al actualizar ubicación' });
+  }
+});*/
+
+res.json({ success: true, message: 'Ubicación actualizada' });
+  } catch (error: any) {
+    console.error('Error actualizando ubicación:', error);
+    res.status(500).json({ error: 'Error al actualizar ubicación' });
   }
 });
 
