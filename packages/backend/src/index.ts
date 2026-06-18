@@ -1466,28 +1466,33 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
 app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
+  console.log(`📡 Cargando mensajes para serviceId: ${serviceId} | Usuario: ${req.user.id}`);
+
   try {
-    // Incluimos las relaciones necesarias
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
       include: {
-        professional: true,   // ← Necesario
-        requester: true       // ← Necesario
+        professional: { include: { user: true } },   // ← Más seguro
+        requester: true
       }
     });
 
     if (!service) {
+      console.error(`❌ Servicio no encontrado: ${serviceId}`);
       return res.status(404).json({ error: 'Servicio no encontrado' });
     }
 
-    // Verificar que el usuario tenga acceso (es el requester o el professional)
+    // Verificar acceso
     const isRequester = service.requesterId === req.user.id;
-    const isProfessionalUser = service.professional?.userId === req.user.id;
+    const isProfessional = service.professional?.user?.id === req.user.id;
 
-    if (!isRequester && !isProfessionalUser) {
-      return res.status(403).json({ error: 'No tienes permiso para ver estos mensajes' });
+    console.log(`🔍 Acceso - Requester: ${isRequester}, Professional: ${isProfessional}`);
+
+    if (!isRequester && !isProfessional) {
+      return res.status(403).json({ error: 'No tienes permiso' });
     }
 
+    // Buscar mensajes
     const messages = await prisma.message.findMany({
       where: { serviceId },
       include: {
@@ -1501,6 +1506,8 @@ app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any
       },
       orderBy: { createdAt: 'asc' }
     });
+
+    console.log(`✅ Mensajes encontrados: ${messages.length} para service ${serviceId}`);
 
     res.json({ messages });
 
