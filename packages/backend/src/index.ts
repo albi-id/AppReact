@@ -1825,39 +1825,39 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
   }
 });
 
-// Actualizar ubicación del usuario (para cualquier usuario)
+// 📍 ACTUALIZAR UBICACIÓN DEL USUARIO - Versión estable
 app.patch('/user/location', authenticate, async (req: any, res: any) => {
   const { lat, lng } = req.body;
 
+  console.log(`📍 [LOCATION] Intento de actualización - User: ${req.user?.id} | Lat: ${lat} | Lng: ${lng}`);
+
   if (typeof lat !== 'number' || typeof lng !== 'number') {
+    console.log('❌ Coordenadas inválidas');
     return res.status(400).json({ error: 'lat y lng deben ser números válidos' });
   }
 
   try {
     await prisma.$executeRawUnsafe(`
       UPDATE "users"
-      SET "lastLocation" = ST_MakePoint(${lng}, ${lat})::geography,
-          "updatedAt" = NOW()
+      SET 
+        "lastLocation" = ST_MakePoint(${lng}, ${lat})::geography,
+        "updatedAt" = NOW()
       WHERE id = $1
     `, req.user.id);
 
-    console.log(`📍 Usuario ${req.user.id} actualizó ubicación: (${lat}, ${lng})`);
+    console.log(`✅ Ubicación actualizada correctamente para usuario ${req.user.id}`);
 
-   /* res.json({
+    res.json({
+      success: true,
       message: 'Ubicación actualizada correctamente',
       location: { lat, lng }
     });
 
   } catch (error: any) {
-    console.error('Error actualizando ubicación de usuario:', error);
-    res.status(500).json({ error: 'Error interno al actualizar ubicación' });
-  }
-});*/
-
-res.json({ success: true, message: 'Ubicación actualizada' });
-  } catch (error: any) {
-    console.error('Error actualizando ubicación:', error);
-    res.status(500).json({ error: 'Error al actualizar ubicación' });
+    console.error('💥 Error actualizando ubicación:', error);
+    res.status(500).json({ 
+      error: 'Error interno al actualizar ubicación' 
+    });
   }
 });
 
