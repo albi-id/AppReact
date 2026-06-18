@@ -1774,25 +1774,22 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
   const userId = req.user.id;
 
   try {
-    const services = await prisma.service.findMany({
+    const conversations = await prisma.service.findMany({
       where: {
         OR: [
           { requesterId: userId },
           { professional: { userId: userId } }
         ],
-        // Solo conversaciones que tengan al menos 1 mensaje
-        messages: {
-          some: {}
-        }
+        messages: { some: {} }   // Solo mostrar las que tienen mensajes
       },
       include: {
         requester: {
-          select: { id: true, firstName: true, lastName: true }
+          select: { id: true, firstName: true, lastName: true, avatar: true }
         },
         professional: {
           include: {
             user: {
-              select: { id: true, firstName: true, lastName: true }
+              select: { id: true, firstName: true, lastName: true, avatar: true }
             }
           }
         },
@@ -1800,18 +1797,40 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
           take: 1,
           orderBy: { createdAt: 'desc' },
           include: {
-            sender: true
+            sender: {
+              select: { id: true, firstName: true, lastName: true }
+            }
           }
         }
       },
-      orderBy: {
-        id: 'desc'   // ← Mejor que por id
+      orderBy: { id: 'desc' }
+    });
+
+    // === AGRUPACIÓN POR PROFESIONAL (lo más importante) ===
+    const grouped = new Map();
+
+    conversations.forEach(conv => {
+      const professionalUserId = conv.professional?.user?.id || conv.professionalId;
+      
+      if (!professionalUserId) return;
+
+      if (!grouped.has(professionalUserId)) {
+        grouped.set(professionalUserId, conv);
+      } else {
+        // Si ya existe, nos quedamos con la conversación más reciente
+        const existing = grouped.get(professionalUserId);
+        if (conv.id > existing.updatedAt) {
+          grouped.set(professionalUserId, conv);
+        }
       }
     });
 
-    console.log(`📬 [CONVERSATIONS] Usuario ${userId} tiene ${services.length} conversaciones`);
+    const unifiedConversations = Array.from(grouped.values());
 
-    res.json(services);
+    console.log(`📬 [CONVERSATIONS] Usuario ${userId} tiene ${unifiedConversations.length} conversaciones unificadas`);
+
+    res.json(unifiedConversations);
+
   } catch (error) {
     console.error('Error al obtener conversaciones:', error);
     res.status(500).json({ error: 'Error al obtener conversaciones' });
