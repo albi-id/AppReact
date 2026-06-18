@@ -1883,6 +1883,50 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
   }
 });
 
+// Obtener TODOS los mensajes entre un usuario y un profesional (unificados)
+app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
+  const userId = req.user.id;
+  const { professionalId } = req.params;
+
+  try {
+    const services = await prisma.service.findMany({
+      where: {
+        OR: [
+          { requesterId: userId, professionalId: professionalId },
+          { requesterId: professionalId, professionalId: userId } // por si acaso
+        ]
+      },
+      select: { id: true }
+    });
+
+    const serviceIds = services.map(s => s.id);
+
+    if (serviceIds.length === 0) {
+      return res.json({ messages: [] });
+    }
+
+    const messages = await prisma.message.findMany({
+      where: {
+        serviceId: { in: serviceIds }
+      },
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    console.log(`📨 Mensajes unificados: ${messages.length} entre ${userId} y ${professionalId}`);
+
+    res.json({ messages });
+
+  } catch (error) {
+    console.error('Error cargando mensajes unificados:', error);
+    res.status(500).json({ error: 'Error al cargar mensajes' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
