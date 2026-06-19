@@ -6,8 +6,7 @@ import 'dotenv/config';
 import cors from 'cors';
 import axios from 'axios';
 import { SERVICE_TYPES, getServiceConfig } from './config/services';  
-import multer from 'multer';
-
+ 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
 // ==================== SETUP ====================
@@ -19,29 +18,7 @@ const supabase = createClient(
 
 
 const app = express();
-
-// Configuración de Multer
-const storage = multer.memoryStorage(); // Guardamos en memoria (ideal para Supabase)
-
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Solo se permiten imágenes'));
-    }
-  }
-});
-
-// Middleware (colócalo después de express.json())
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// ←←← Multer middleware
-app.use(upload.single('document'));   // ← Muy importante: 'document'
-
+ 
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   credentials: true,
