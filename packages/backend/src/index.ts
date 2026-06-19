@@ -1952,8 +1952,7 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
       select: { 
         id: true,
         type: true,
-        status: true,
-        createdAt: true 
+        status: true  
       }
     });
 
@@ -1976,7 +1975,7 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
           select: { id: true, firstName: true, lastName: true }
         }
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { id: 'asc' }
     });
 
     console.log(`✅ Mensajes unificados encontrados: ${messages.length}`);
