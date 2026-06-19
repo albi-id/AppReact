@@ -1997,25 +1997,23 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   }
 });
 
-// Subir documento (DNI o Certificado)
+// Subir documento - Versión optimizada (Multipart)
 app.post('/upload/document', authenticate, async (req: any, res: any) => {
   try {
-    const { fileName, fileType, base64 } = req.body;
-
-    if (!fileName || !base64) {
-      return res.status(400).json({ error: 'Faltan datos del archivo' });
+    if (!req.files || !req.files.document) {
+      return res.status(400).json({ error: 'No se recibió ningún archivo' });
     }
 
-    // Convertir base64 a Buffer
-    const buffer = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+    const file = req.files.document;
+    const fileExt = file.name.split('.').pop().toLowerCase();
+    const fileName = `${Date.now()}-${req.user.id}.${fileExt}`;
+    const filePath = `professionals/${req.user.id}/${fileName}`;
 
-    const fileExt = fileName.split('.').pop();
-    const filePath = `professionals/${req.user.id}/${Date.now()}-${fileName}`;
-
+    // Subir a Supabase Storage
     const { data, error } = await supabase.storage
       .from('documents')
-      .upload(filePath, buffer, {
-        contentType: fileType || `image/${fileExt}`,
+      .upload(filePath, file.data, {
+        contentType: file.mimetype,
         upsert: true
       });
 
@@ -2025,6 +2023,8 @@ app.post('/upload/document', authenticate, async (req: any, res: any) => {
       .from('documents')
       .getPublicUrl(filePath);
 
+    console.log(`✅ Documento subido: ${urlData.publicUrl}`);
+
     res.json({
       success: true,
       url: urlData.publicUrl
@@ -2032,7 +2032,7 @@ app.post('/upload/document', authenticate, async (req: any, res: any) => {
 
   } catch (error: any) {
     console.error('Error subiendo documento:', error);
-    res.status(500).json({ error: 'Error al subir documento' });
+    res.status(500).json({ error: 'Error al subir el documento' });
   }
 });
 
