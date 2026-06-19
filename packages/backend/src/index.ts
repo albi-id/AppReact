@@ -6,7 +6,7 @@ import 'dotenv/config';
 import cors from 'cors';
 import axios from 'axios';
 import { SERVICE_TYPES, getServiceConfig } from './config/services';  
-
+import fileUpload from 'express-fileupload';
 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -19,6 +19,17 @@ const supabase = createClient(
 
 
 const app = express();
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(fileUpload({
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  useTempFiles: true,
+  tempFileDir: '/tmp/',
+  createParentPath: true,
+  parseNested: true,
+  safeFileNames: true,
+  preserveExtension: true,
+}));
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
@@ -2000,16 +2011,20 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
 // Subir documento - Versión optimizada (Multipart)
 app.post('/upload/document', authenticate, async (req: any, res: any) => {
   try {
+    console.log("🔍 Archivos recibidos:", req.files ? Object.keys(req.files) : "Ninguno");
+
     if (!req.files || !req.files.document) {
-      return res.status(400).json({ error: 'No se recibió ningún archivo' });
+      return res.status(400).json({ 
+        error: 'No se recibió ningún archivo. El campo debe llamarse "document"' 
+      });
     }
 
     const file = req.files.document;
-    const fileExt = file.name.split('.').pop().toLowerCase();
-    const fileName = `${Date.now()}-${req.user.id}.${fileExt}`;
-    const filePath = `professionals/${req.user.id}/${fileName}`;
+    console.log(`📁 Archivo: ${file.name} - Tamaño: ${file.size} bytes`);
 
-    // Subir a Supabase Storage
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const filePath = `professionals/${req.user.id}/${Date.now()}-${file.name}`;
+
     const { data, error } = await supabase.storage
       .from('documents')
       .upload(filePath, file.data, {
@@ -2019,19 +2034,12 @@ app.post('/upload/document', authenticate, async (req: any, res: any) => {
 
     if (error) throw error;
 
-    const { data: urlData } = supabase.storage
-      .from('documents')
-      .getPublicUrl(filePath);
+    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
 
-    console.log(`✅ Documento subido: ${urlData.publicUrl}`);
-
-    res.json({
-      success: true,
-      url: urlData.publicUrl
-    });
+    res.json({ success: true, url: urlData.publicUrl });
 
   } catch (error: any) {
-    console.error('Error subiendo documento:', error);
+    console.error('💥 Error completo:', error);
     res.status(500).json({ error: 'Error al subir el documento' });
   }
 });
