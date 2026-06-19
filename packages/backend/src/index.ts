@@ -2018,44 +2018,34 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     res.status(500).json({ error: 'Error al cargar historial' });
   }
 });
-
  
-// Subir documento con Multer + Supabase
-app.post('/upload/document', authenticate, async (req: any, res: any) => {
+// Generar URL firmada para subir documentos
+app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No se recibió ningún archivo' });
+    const { fileName, fileType } = req.body;
+
+    if (!fileName) {
+      return res.status(400).json({ error: 'fileName es requerido' });
     }
 
-    const file = req.file;
-    console.log(`📁 Archivo recibido: ${file.originalname} (${file.size} bytes)`);
-
-    const fileExt = file.originalname.split('.').pop()?.toLowerCase() || 'jpg';
-    const filePath = `professionals/${req.user.id}/${Date.now()}-${file.originalname}`;
+    const filePath = `professionals/${req.user.id}/${Date.now()}-${fileName}`;
 
     const { data, error } = await supabase.storage
       .from('documents')
-      .upload(filePath, file.buffer, {
-        contentType: file.mimetype,
-        upsert: true
-      });
+      .createSignedUploadUrl(filePath);
 
     if (error) throw error;
 
-    const { data: urlData } = supabase.storage
-      .from('documents')
-      .getPublicUrl(filePath);
-
-    console.log(`✅ Documento subido: ${urlData.publicUrl}`);
-
     res.json({
       success: true,
-      url: urlData.publicUrl
+      signedUrl: data.signedUrl,
+      publicUrl: data.signedUrl.split('?')[0], // URL pública aproximada
+      path: filePath
     });
 
   } catch (error: any) {
-    console.error('💥 Error subiendo documento:', error);
-    res.status(500).json({ error: 'Error al subir el documento' });
+    console.error('Error generando signed URL:', error);
+    res.status(500).json({ error: 'Error al generar URL de subida' });
   }
 });
 
