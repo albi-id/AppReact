@@ -2007,22 +2007,28 @@ app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
 
     const filePath = `professionals/${req.user.id}/${Date.now()}-${fileName}`;
 
+    // Usar service_role key para bypass RLS en uploads (más confiable)
     const { data, error } = await supabase.storage
       .from('documents')
-      .createSignedUploadUrl(filePath);
+      .createSignedUploadUrl(filePath);   // Esta línea es la que fallaba
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase Error:', error);
+      throw error;
+    }
 
     res.json({
       success: true,
       signedUrl: data.signedUrl,
-      publicUrl: data.signedUrl.split('?')[0], // URL pública aproximada
+      publicUrl: data.signedUrl.split('?')[0], 
       path: filePath
     });
 
   } catch (error: any) {
     console.error('Error generando signed URL:', error);
-    res.status(500).json({ error: 'Error al generar URL de subida' });
+    res.status(500).json({ 
+      error: error.message || 'Error al generar URL de subida' 
+    });
   }
 });
 
