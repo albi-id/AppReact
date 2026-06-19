@@ -1884,7 +1884,7 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
 });
 
 // Obtener TODOS los mensajes entre un usuario y un profesional (unificados)
-app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
+/*app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
   const { professionalId } = req.params;
 
@@ -1924,6 +1924,68 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   } catch (error) {
     console.error('Error cargando mensajes unificados:', error);
     res.status(500).json({ error: 'Error al cargar mensajes' });
+  }
+});
+*/
+// UNIFICADO - Versión Definitiva y Robusta
+app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
+  const userId = req.user.id;
+  const { professionalId } = req.params;
+
+  console.log(`📡 [UNIFIED DEBUG] User: ${userId} | Professional: ${professionalId}`);
+
+  try {
+    // Buscar TODOS los services entre ellos
+    const services = await prisma.service.findMany({
+      where: {
+        OR: [
+          { 
+            requesterId: userId, 
+            professionalId: professionalId 
+          },
+          { 
+            requesterId: professionalId, 
+            professionalId: userId 
+          }
+        ]
+      },
+      select: { 
+        id: true,
+        type: true,
+        status: true,
+        createdAt: true 
+      }
+    });
+
+    console.log(`🔍 Services encontrados: ${services.length}`, services.map(s => s.id));
+
+    const serviceIds = services.map(s => s.id);
+
+    if (serviceIds.length === 0) {
+      console.log('⚠️ No se encontraron services entre usuario y profesional');
+      return res.json({ messages: [] });
+    }
+
+    // Buscar todos los mensajes
+    const messages = await prisma.message.findMany({
+      where: { 
+        serviceId: { in: serviceIds } 
+      },
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    console.log(`✅ Mensajes unificados encontrados: ${messages.length}`);
+
+    res.json({ messages });
+
+  } catch (error: any) {
+    console.error('💥 Error en endpoint unificado:', error);
+    res.status(500).json({ error: 'Error al cargar historial de mensajes' });
   }
 });
 
