@@ -1999,36 +1999,32 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
 // Generar URL firmada para subir documentos
 app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
   try {
-    const { fileName, fileType } = req.body;
+    const { fileName } = req.body;
 
-    if (!fileName) {
-      return res.status(400).json({ error: 'fileName es requerido' });
-    }
+    if (!fileName) return res.status(400).json({ error: 'fileName requerido' });
 
     const filePath = `professionals/${req.user.id}/${Date.now()}-${fileName}`;
 
-    // Usar service_role key para bypass RLS en uploads (más confiable)
+    // Usamos el service_role client para bypass RLS en uploads
     const { data, error } = await supabase.storage
       .from('documents')
-      .createSignedUploadUrl(filePath);   // Esta línea es la que fallaba
+      .createSignedUploadUrl(filePath);
 
     if (error) {
-      console.error('Supabase Error:', error);
+      console.error('Supabase signed URL error:', error);
       throw error;
     }
 
     res.json({
       success: true,
       signedUrl: data.signedUrl,
-      publicUrl: data.signedUrl.split('?')[0], 
+      publicUrl: data.signedUrl.split('?')[0],
       path: filePath
     });
 
   } catch (error: any) {
     console.error('Error generando signed URL:', error);
-    res.status(500).json({ 
-      error: error.message || 'Error al generar URL de subida' 
-    });
+    res.status(500).json({ error: error.message || 'Error interno' });
   }
 });
 
