@@ -1997,6 +1997,45 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   }
 });
 
+// Subir documento (DNI o Certificado)
+app.post('/upload/document', authenticate, async (req: any, res: any) => {
+  try {
+    const { fileName, fileType, base64 } = req.body;
+
+    if (!fileName || !base64) {
+      return res.status(400).json({ error: 'Faltan datos del archivo' });
+    }
+
+    // Convertir base64 a Buffer
+    const buffer = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+
+    const fileExt = fileName.split('.').pop();
+    const filePath = `professionals/${req.user.id}/${Date.now()}-${fileName}`;
+
+    const { data, error } = await supabase.storage
+      .from('documents')
+      .upload(filePath, buffer, {
+        contentType: fileType || `image/${fileExt}`,
+        upsert: true
+      });
+
+    if (error) throw error;
+
+    const { data: urlData } = supabase.storage
+      .from('documents')
+      .getPublicUrl(filePath);
+
+    res.json({
+      success: true,
+      url: urlData.publicUrl
+    });
+
+  } catch (error: any) {
+    console.error('Error subiendo documento:', error);
+    res.status(500).json({ error: 'Error al subir documento' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
