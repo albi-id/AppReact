@@ -91,10 +91,7 @@ Si querés probar desde el celular (misma red WiFi):
 En la terminal de Vite aparecerá un QR → escanéalo con el navegador del celular.
 O usa la IP que te muestra (ej. http://192.168.1.xxx:5173)
 
-
-
 ------USUARIOS REGISTRADIS EN LA BASE
-
 
 user 
 {"email": "mariadelalbae25@gmail.com", "password": "12345678"}
@@ -109,9 +106,6 @@ user
     },
     "expiresIn": 3600
 }
-
-
-
 
 driver
 {"email": "mariadelalbae@gmail.com", "password": "12345678"}
@@ -143,3 +137,89 @@ solicitar servicio
         "requestedAt": "2026-01-25T00:04:46.959Z"
     }
 }
+
+
+para conectar en ios , es importante tener conectado celu y compu en mismo wifi y red ej 2.4 encinas ambos
+ademas abrir config de wifi y poner privido 
+
+--si no anda de ninguna forma
+D:\AppReact\conGrok\mobile>npx expo start --lan   
+--sino con este comando:
+npx expo start -c
+escanear con la camara del celu el qr que se genera en cosola 
+
+
+CUANDO LOS CAMBIOS NO SE REFLEJAN EN LA APP
+        cd D:\AppReact\conGrok\mobile
+
+        # 1. Borra todo el caché de Expo
+        rmdir /s /q .expo
+
+        # 2. Borra node_modules y lock file
+        rmdir /s /q node_modules
+        del package-lock.json
+
+        # 3. Reinstala todo
+        npm install
+
+        # 4. Inicia con limpieza profunda
+        npx expo start -c
+
+
+UNA LIMPIEZA MENOS ABRAZIBA
+        cd D:\AppReact\conGrok\mobile
+
+        # Borra caché profundo
+        rmdir /s /q .expo
+        rmdir /s /q node_modules/.cache
+
+        npx expo start -c
+
+
+
+
+        ---------------
+
+
+          const loadServices = async () => {
+    try {
+      const token = await SecureStore.getItemAsync('accessToken');
+      if (!token) {
+        navigation.navigate('Login');
+        return;
+      }
+
+      const userRes = await axios.get(`${BACKEND_URL}/users/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUser(userRes.data.user);
+
+      const isDriver = userRes.data.user.role === 'DRIVER';
+      const url = isDriver 
+        ? `${BACKEND_URL}/services/driver/my` 
+        : `${BACKEND_URL}/services/my`;
+
+      const res = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setServices(res.data.services || res.data || []);
+    } catch (error: any) {                    // ← Cambiado a 'any'
+      console.error('Error cargando servicios:', error);
+      
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        Alert.alert('Sesión expirada', 'Por favor inicia sesión nuevamente');
+        navigation.navigate('Login');
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+
+  PARA APROBAR UNA SOLICITUD DE PROFESIONAL NUEVO
+  EN PROFESSIONAL: 
+  STATUS:APPROVED
+  EN USER:
+  ROLE:PROFESIONAL
