@@ -98,6 +98,10 @@ model Service {
   pickupLng Float?
   pickupLocation Unsupported("gis.geography(Point, 4326)")?
   pickupAddress   String?
+  pickupAddressExtra String?    // Ej: "Departamento 3B, 2do piso, timbre negro"
+  reference         String?     // "Al lado del supermercado", "Casa con rejas blancas"
+  floor             String?     // Piso / Departamento
+  doorNumber        String?     // Número de puerta
   provinceId String? // ← Agregar
   cityId String? // ← Agregar
   status ServiceStatus @default(REQUESTED)
