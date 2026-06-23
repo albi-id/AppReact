@@ -6,6 +6,7 @@ import 'dotenv/config';
 import cors from 'cors';
 import axios from 'axios';
 import { SERVICE_TYPES, getServiceConfig } from './config/services';  
+import rateLimit from 'express-rate-limit';
  
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -27,6 +28,36 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// ==================== RATE LIMITING ====================
+const limiter = rateLimit({
+  windowMs: 60 * 1000,        // 1 minuto
+  max: 60,                    // máximo 60 requests por minuto por IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Demasiadas solicitudes. Por favor intenta más tarde.'
+  }
+});
+
+// Rate limit más estricto para endpoints críticos
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,   // 15 minutos
+  max: 10,                    // máximo 10 intentos de login/register
+  message: { error: 'Demasiados intentos. Intenta más tarde.' }
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,                    // 40 requests por minuto para la mayoría de endpoints
+});
+
+// Aplicar middlewares
+app.use(limiter);                    // Global (suave)
+app.use('/register', authLimiter);
+app.use('/login', authLimiter);      // si tienes endpoint de login
+app.use('/services/request', apiLimiter);   // Endpoint crítico
+app.use('/upload', apiLimiter);
 
 const port = Number(process.env.PORT) || 10000;
 
@@ -1055,96 +1086,56 @@ if (!professionals?.length) {
 // PROFESIONALES DESTACADOS (Suscripción Premium)
 // =============================================
 
-// HU-20: Listado de Profesionales con filtro combinado (Ubicación + Búsqueda)
- app.get('/professionals', async (req: any, res: any) => {
-  const { search, profession, provinceId, cityId } = req.query;
+// HU-20: Profesionales Destacados - Versión optimizada
+app.get('/professionals', async (req: any, res: any) => {
+  const { search, profession, provinceId, cityId, page = 1, limit = 20 } = req.query;
 
   try {
-    const where: any = { 
-      status: 'APPROVED'
-    };
+    const pageNum = Math.max(1, parseInt(page as string));
+    const limitNum = Math.min(50, Math.max(5, parseInt(limit as string))); // máximo 50 por página
 
-    // Filtro por profesión específica
-    if (profession) {
-      where.profession = { contains: profession as string, mode: 'insensitive' };
-    }
+    const where: any = { status: 'APPROVED' };
 
-    // ==================== FILTRO DE UBICACIÓN CON FALLBACK ====================
-    if (provinceId || cityId) {
-      where.OR = [];
+    if (profession) where.profession = { contains: profession as string, mode: 'insensitive' };
+    if (provinceId) where.provinceId = provinceId;
+    if (cityId) where.cityId = cityId;
 
-      // 1. Buscar directamente en Professional
-      const professionalFilter: any = {};
-      if (provinceId) professionalFilter.provinceId = provinceId;
-      if (cityId) professionalFilter.cityId = cityId;
-
-      where.OR.push(professionalFilter);
-
-      // 2. Fallback: Buscar en la relación User (para profesionales antiguos)
-      where.OR.push({
-        user: {
-          ...(provinceId && { provinceId }),
-          ...(cityId && { cityId })
-        }
-      });
-    }
-
-    // ==================== BÚSQUEDA POR TEXTO ====================
     if (search) {
-      const searchFilter = {
-        OR: [
-          { fullName: { contains: search as string, mode: 'insensitive' } },
-          { profession: { contains: search as string, mode: 'insensitive' } }
-        ]
-      };
-
-      if (where.OR) {
-        where.AND = [
-          { OR: where.OR },
-          searchFilter
-        ];
-        delete where.OR; // Limpiamos para evitar conflicto
-      } else {
-        where.OR = [searchFilter]; // Si no hay filtro de ubicación, usamos OR normal
-      }
+      where.OR = [
+        { fullName: { contains: search as string, mode: 'insensitive' } },
+        { profession: { contains: search as string, mode: 'insensitive' } }
+      ];
     }
 
-    const professionals = await prisma.professional.findMany({
-      where,
-      include: { 
-        user: {
-          select: { 
-            id: true, 
-            firstName: true, 
-            lastName: true,
-            photoUrl: true,
-            provinceId: true,
-            cityId: true
-          }
-        }
-      },
-      orderBy: [
-        { rating: 'desc' },
-        { reviewCount: 'desc' },
-        { createdAt: 'desc' }
-      ],
-    });
-
-    console.log(`📍 Filtros → Provincia: ${provinceId}, Ciudad: ${cityId}, Search: "${search}" | Resultados: ${professionals.length}`);
+    const [professionals, total] = await Promise.all([
+      prisma.professional.findMany({
+        where,
+        include: { 
+          user: { select: { firstName: true, lastName: true } }
+        },
+        orderBy: [
+          { rating: 'desc' },
+          { reviewCount: 'desc' }
+        ],
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
+      }),
+      prisma.professional.count({ where })
+    ]);
 
     res.json({
-      message: 'Profesionales disponibles',
       professionals,
-      total: professionals.length,
-      filters: { provinceId, cityId, search }
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
     });
 
   } catch (error: any) {
     console.error('💥 [PROFESSIONALS] Error:', error);
-    res.status(500).json({ 
-      error: 'Error interno al obtener profesionales',
-      details: error.message 
-    });
+    res.status(500).json({ error: 'Error al obtener profesionales' });
   }
 });
 
