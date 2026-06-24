@@ -1087,55 +1087,96 @@ if (!professionals?.length) {
 // =============================================
 
 // HU-20: Profesionales Destacados - Versión optimizada
-app.get('/professionals', async (req: any, res: any) => {
-  const { search, profession, provinceId, cityId, page = 1, limit = 20 } = req.query;
+// HU-20: Listado de Profesionales con filtro combinado (Ubicación + Búsqueda)
+ app.get('/professionals', async (req: any, res: any) => {
+  const { search, profession, provinceId, cityId } = req.query;
 
   try {
-    const pageNum = Math.max(1, parseInt(page as string));
-    const limitNum = Math.min(50, Math.max(5, parseInt(limit as string))); // máximo 50 por página
+    const where: any = { 
+      status: 'APPROVED'
+    };
 
-    const where: any = { status: 'APPROVED' };
-
-    if (profession) where.profession = { contains: profession as string, mode: 'insensitive' };
-    if (provinceId) where.provinceId = provinceId;
-    if (cityId) where.cityId = cityId;
-
-    if (search) {
-      where.OR = [
-        { fullName: { contains: search as string, mode: 'insensitive' } },
-        { profession: { contains: search as string, mode: 'insensitive' } }
-      ];
+    // Filtro por profesión específica
+    if (profession) {
+      where.profession = { contains: profession as string, mode: 'insensitive' };
     }
 
-    const [professionals, total] = await Promise.all([
-      prisma.professional.findMany({
-        where,
-        include: { 
-          user: { select: { firstName: true, lastName: true } }
-        },
-        orderBy: [
-          { rating: 'desc' },
-          { reviewCount: 'desc' }
-        ],
-        skip: (pageNum - 1) * limitNum,
-        take: limitNum,
-      }),
-      prisma.professional.count({ where })
-    ]);
+    // ==================== FILTRO DE UBICACIÓN CON FALLBACK ====================
+    if (provinceId || cityId) {
+      where.OR = [];
+
+      // 1. Buscar directamente en Professional
+      const professionalFilter: any = {};
+      if (provinceId) professionalFilter.provinceId = provinceId;
+      if (cityId) professionalFilter.cityId = cityId;
+
+      where.OR.push(professionalFilter);
+
+      // 2. Fallback: Buscar en la relación User (para profesionales antiguos)
+      where.OR.push({
+        user: {
+          ...(provinceId && { provinceId }),
+          ...(cityId && { cityId })
+        }
+      });
+    }
+
+    // ==================== BÚSQUEDA POR TEXTO ====================
+    if (search) {
+      const searchFilter = {
+        OR: [
+          { fullName: { contains: search as string, mode: 'insensitive' } },
+          { profession: { contains: search as string, mode: 'insensitive' } }
+        ]
+      };
+
+      if (where.OR) {
+        where.AND = [
+          { OR: where.OR },
+          searchFilter
+        ];
+        delete where.OR; // Limpiamos para evitar conflicto
+      } else {
+        where.OR = [searchFilter]; // Si no hay filtro de ubicación, usamos OR normal
+      }
+    }
+
+    const professionals = await prisma.professional.findMany({
+      where,
+      include: { 
+        user: {
+          select: { 
+            id: true, 
+            firstName: true, 
+            lastName: true,
+            photoUrl: true,
+            provinceId: true,
+            cityId: true
+          }
+        }
+      },
+      orderBy: [
+        { rating: 'desc' },
+        { reviewCount: 'desc' },
+        { createdAt: 'desc' }
+      ],
+    });
+
+    console.log(`📍 Filtros → Provincia: ${provinceId}, Ciudad: ${cityId}, Search: "${search}" | Resultados: ${professionals.length}`);
 
     res.json({
+      message: 'Profesionales disponibles',
       professionals,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
-      }
+      total: professionals.length,
+      filters: { provinceId, cityId, search }
     });
 
   } catch (error: any) {
     console.error('💥 [PROFESSIONALS] Error:', error);
-    res.status(500).json({ error: 'Error al obtener profesionales' });
+    res.status(500).json({ 
+      error: 'Error interno al obtener profesionales',
+      details: error.message 
+    });
   }
 });
 
