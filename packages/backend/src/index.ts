@@ -52,12 +52,21 @@ const apiLimiter = rateLimit({
   max: 40,                    // 40 requests por minuto para la mayoría de endpoints
 });
 
+// Rate Limiter más estricto para endpoints críticos
+const strictLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,                    // 40 requests por minuto para endpoints sensibles
+  message: { error: 'Estás haciendo demasiadas peticiones.' }
+});
+
 // Aplicar middlewares
 app.use(limiter);                    // Global (suave)
 app.use('/register', authLimiter);
 app.use('/login', authLimiter);      // si tienes endpoint de login
 app.use('/services/request', apiLimiter);   // Endpoint crítico
 app.use('/upload', apiLimiter);
+app.use('/professionals', strictLimiter);   // ← El que más te afecta
+
 
 const port = Number(process.env.PORT) || 10000;
 
