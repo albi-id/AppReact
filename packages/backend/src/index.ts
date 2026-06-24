@@ -54,9 +54,11 @@ const apiLimiter = rateLimit({
 
 // Rate Limiter más estricto para endpoints críticos
 const strictLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 40,                    // 40 requests por minuto para endpoints sensibles
-  message: { error: 'Estás haciendo demasiadas peticiones.' }
+  windowMs: 60 * 1000,   // 1 minuto
+  max: 150,              // Subimos bastante
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Estás buscando muy rápido. Espera unos segundos.' }
 });
 
 // Aplicar middlewares
