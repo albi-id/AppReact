@@ -54,8 +54,8 @@ model User {
   city City? @relation(fields: [cityId], references: [id])
   services Service[] @relation("ServiceRequester")
   professional Professional?
-  sentMessages Message[] @relation("SentMessages") // ← Agregar
-  receivedMessages Message[] @relation("ReceivedMessages") // ← Agregar
+  sentMessages Message[] @relation("SentMessages")  
+  receivedMessages Message[] @relation("ReceivedMessages")  
   @@map("users")
 }
 model Professional {
@@ -81,13 +81,17 @@ model Professional {
   updatedAt DateTime @updatedAt
   rejectCount     Int      @default(0)
   lastRejectAt    DateTime?
-  provinceId String? // ← Agregar
-  cityId String? // ← Agregar
-  province Province? @relation(fields: [provinceId], references: [id]) // ← Agregar
-  city City? @relation(fields: [cityId], references: [id]) // ← Agregar
+  provinceId String?  
+  cityId String?  
+  province Province? @relation(fields: [provinceId], references: [id])  
+  city City? @relation(fields: [cityId], references: [id])  
   // Relación con servicios donde este profesional es quien presta el servicio
   services Service[] @relation("ServiceProfessional")
   @@map("professionals")
+  @@index([provinceId, cityId])
+  @@index([isActive, status])
+  @@index([profession])
+  @@index([lastLocation], type: Gist)   // ← Índice geoespacial clave
 }
 model Service {
   id String @id @default(cuid())
@@ -102,8 +106,8 @@ model Service {
   reference         String?     // "Al lado del supermercado", "Casa con rejas blancas"
   floor             String?     // Piso / Departamento
   doorNumber        String?     // Número de puerta
-  provinceId String? // ← Agregar
-  cityId String? // ← Agregar
+  provinceId String?  
+  cityId String?  
   status ServiceStatus @default(REQUESTED)
   amount Float?
   rating Int?
@@ -115,8 +119,12 @@ model Service {
   paidAt DateTime?
   requester User @relation("ServiceRequester", fields: [requesterId], references: [id])
   professional Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
-  messages Message[] // ← Agregar esta línea
+  messages Message[]  
   @@map("services")
+  @@index([requesterId, status])
+  @@index([professionalId, status])
+  @@index([pickupLocation], type: Gist)   
+  @@index([provinceId, cityId])
 }
 model Message {
   id String @id @default(cuid())
@@ -138,7 +146,7 @@ model Province {
   name String @unique
   cities City[]
   users User[]
-  professionals Professional[] // ← Agregar esta línea
+  professionals Professional[]  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -148,7 +156,7 @@ model City {
   provinceId String
   province Province @relation(fields: [provinceId], references: [id])
   users User[]
-  professionals Professional[] // ← Agregar esta línea
+  professionals Professional[]  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([name, provinceId])
