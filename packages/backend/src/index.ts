@@ -1034,6 +1034,21 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
   MAX_DISTANCE_KM * 1000   // ← Pasado como parámetro
 );
 
+    //esto sacar luego de encontrar error de distancia mal calculada es solo para debug
+    console.log(`📍 [DEBUG DISTANCE] Profesionales encontrados: ${professionals.length}`);
+
+    if (professionals.length > 0) {
+          console.log("🔍 Primer profesional:", {
+            name: professionals[0].fullName,
+            distanceKm: parseFloat(professionals[0].distanceKm).toFixed(3),
+            proLocation: professionals[0].proLocation,
+            rawLocation: professionals[0].lastLocation
+          });
+        } else {
+          console.log("⚠️ No se encontraron profesionales activos");
+        }
+    //hasta aqui
+
 if (!professionals?.length) {
     // === MANEJO DE COLA ===
     await prisma.service.update({
