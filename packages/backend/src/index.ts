@@ -29,6 +29,12 @@ app.use(cors({
 
 app.use(express.json());
 
+// Logging de requests para debug rate limit
+app.use((req, res, next) => {
+  console.log(`📡 [REQUEST] ${req.method} ${req.path} - IP: ${req.ip}`);
+  next();
+});
+
 // ==================== RATE LIMITING ====================
 const limiter = rateLimit({
   windowMs: 60 * 1000,        // 1 minuto
@@ -40,7 +46,7 @@ const limiter = rateLimit({
   }
 });
 
-// Rate limit más estricto para endpoints críticos
+// Rate limit  
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,   // 15 minutos
   max: 10,                    // máximo 10 intentos de login/register
@@ -49,25 +55,25 @@ const authLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 40,                    // 40 requests por minuto para la mayoría de endpoints
+  max: 40,                    // 40 requests por minuto   
 });
 
 // Rate Limiter más estricto para endpoints críticos
 const strictLimiter = rateLimit({
   windowMs: 60 * 1000,   // 1 minuto
-  max: 150,              // Subimos bastante
+  max: 150,               
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Estás buscando muy rápido. Espera unos segundos.' }
 });
 
-// Aplicar middlewares
-app.use(limiter);                    // Global (suave)
+// Aplicar a middlewares
+app.use(limiter);                    // Global  
 app.use('/register', authLimiter);
-app.use('/login', authLimiter);      // si tienes endpoint de login
+app.use('/login', authLimiter);       
 app.use('/services/request', apiLimiter);   // Endpoint crítico
 app.use('/upload', apiLimiter);
-app.use('/professionals', strictLimiter);   // ← El que más te afecta
+app.use('/professionals', strictLimiter);   
 
 
 const port = Number(process.env.PORT) || 10000;
@@ -947,7 +953,8 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
   const MAX_DISTANCE_KM = 10;   // ← Ajustable por tipo de servicio
 
   console.log(`🚀 [REQUEST] Solicitud recibida - Type: ${type} | CityId: ${cityId} | ProvinceId: ${provinceId}`);
-
+  console.log(`🚀 [REQUEST] Coordenadas recibidas: Lat=${pickupLat}, Lng=${pickupLng}`);
+  
   try {
     if (req.dbUser.role !== 'USER') {
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
