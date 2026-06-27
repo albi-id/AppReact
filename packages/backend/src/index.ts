@@ -167,7 +167,7 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
 });
 
  
-// HU-5: Mis servicios solicitados (para USER) - Con distancia calculada
+// HU-5: Mis servicios solicitados (para USER) - Optimizado
 app.get('/services/my', authenticate, async (req: any, res: any) => {
   try {
     const services = await prisma.$queryRawUnsafe<any[]>(`
@@ -212,14 +212,14 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       pickupLat: service.pickupLat,
       pickupLng: service.pickupLng,
       pickupAddress: service.pickupAddress,
-      cityId: service.cityId,
-      provinceId: service.provinceId,
       status: service.status,
       amount: service.amount,
       rating: service.rating,
       review: service.review,
       requestedAt: service.requestedAt,
       acceptedAt: service.acceptedAt,
+      cityId: service.cityId,
+      provinceId: service.provinceId,
       arrivedAt: service.arrivedAt,
       completedAt: service.completedAt,
       paidAt: service.paidAt,
@@ -228,12 +228,14 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         id: service.professionalId,
         fullName: service.fullName || 'Profesional',
         profession: service.profession,
+        rating: parseFloat(service.professionalRating || 0),
+        reviewCount: service.reviewCount || 0,
       } : null,
       
       distanceKm: Number(parseFloat(service.distanceKm || 0).toFixed(2)),
     }));
 
-    console.log(`📋 [SERVICES/MY] Usuario ${req.user.id} tiene ${services.length} servicios`);
+    console.log(`📋 [SERVICES/MY] Usuario ${req.user.id} → ${services.length} servicios`);
 
     res.json({
       message: 'Mis servicios',
@@ -244,7 +246,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
     console.error('💥 [SERVICES/MY] Error:', error);
     res.status(500).json({ 
       error: 'Error interno al cargar servicios',
-      details: error.message || error.toString()
+      details: error.message 
     });
   }
 });
@@ -321,10 +323,10 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
     `, professional.id);
 
     // Formateo manteniendo la misma estructura que tenías
-    const formattedServices = services.map(service => {
+    const formattedServices = services.map((service: any) => {
       const distanceKm = service.distanceKm 
         ? parseFloat(service.distanceKm).toFixed(2) 
-        : 0;
+        : "0.00";
 
       return {
         ...service,
@@ -461,8 +463,8 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
   }
 });
 
-// HU-09: Rechazar oferta + fallback automático
- app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
+// HU-09: Rechazar oferta + fallback automático (OPTIMIZADO CON GIST)
+app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
 
   try {
@@ -496,9 +498,9 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       return res.status(403).json({ error: 'No puedes rechazar este servicio' });
     }
 
-    console.log(`🔄 [REJECT] Servicio ${serviceId} rechazado por ${professional.fullName} (${professional.profession})`);
+    console.log(`🔄 [REJECT] Servicio ${serviceId} rechazado por ${professional.fullName}`);
 
-    // Marcar como rechazado y limpiar profesional
+    // Marcar como rechazado
     await prisma.service.update({
       where: { id: serviceId },
       data: { 
@@ -507,21 +509,17 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       }
     });
 
-        // Después de rechazar
     await prisma.professional.update({
       where: { id: professional.id },
       data: {
         rejectCount: { increment: 1 },
         lastRejectAt: new Date(),
-        // Opcional: bajarlo de línea temporalmente isActive: false   
       }
     });
 
-    // Si rechaza más de X veces en poco tiempo if (professional.rejectCount >= 5) {
-      // Suspender temporalmente o notificar admin pero actualmente no hace nada mas }
-    
+    const MAX_DISTANCE_METERS = 15000; // 15 km
 
-    // ==================== BUSCAR SIGUIENTE PROFESIONAL CON POSTGIS ====================
+    // ==================== CONSULTA OPTIMIZADA CON GIST ====================
     const candidates = await prisma.$queryRawUnsafe<any[]>(`
       SELECT 
         p.id,
@@ -536,25 +534,31 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       FROM "professionals" p
       WHERE p."isActive" = true 
         AND p.status = 'APPROVED'
-        AND p.profession = ${service.type}
+        AND p.profession = ${service.type ? `'${service.type}'` : 'p.profession'}
         AND p.cityId = ${service.cityId}
         AND p.provinceId = ${service.provinceId}
         AND p.id != ${professional.id}
+        AND ST_DWithin(
+          p."lastLocation"::geography,
+          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
+          ${MAX_DISTANCE_METERS}
+        )
       ORDER BY "distanceKm" ASC
       LIMIT 5;
     `);
 
     if (candidates.length === 0) {
-      console.log(`⚠️ [REJECT] No hay más profesionales de ${service.type} en ${service.cityId}, ${service.provinceId}`);
+      console.log(`⚠️ [REJECT] No hay más profesionales cercanos`);
       return res.json({ 
-        message: `Oferta rechazada. No hay más profesionales de ${service.type} disponibles en ${service.cityId} (${service.provinceId}).` 
+        message: `Oferta rechazada. No hay más profesionales disponibles cerca.` 
       });
     }
 
     const next = candidates[0];
+    const distanceKm = parseFloat(next.distanceKm).toFixed(2);
 
-    // Reasignar servicio
-    const updated = await prisma.service.update({
+    // Reasignar
+    await prisma.service.update({
       where: { id: serviceId },
       data: { 
         professionalId: next.id, 
@@ -562,9 +566,7 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
       }
     });
 
-    const distanceKm = parseFloat(next.distanceKm).toFixed(2);
-
-    console.log(`✅ [REASSIGN] Reasignado a ${next.fullName} - Distancia: ${distanceKm} km`);
+    console.log(`✅ [REASSIGN] Reasignado a ${next.fullName} - ${distanceKm} km`);
 
     res.json({
       message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
@@ -578,7 +580,6 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
     res.status(500).json({ error: 'Error interno al rechazar el servicio' });
   }
 });
-
 
 // HU-23: Marcar llegada
 app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any) => {
