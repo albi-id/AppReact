@@ -300,6 +300,11 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         s."pickupLat",
         s."pickupLng",
         s."pickupAddress", 
+        s."pickupAddressExtra",
+        s.reference,
+        s.floor,
+        s."doorNumber",
+        s."pickupAddressExtra",
         s.status,
         s.amount,
         s.rating,
@@ -328,7 +333,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
       ORDER BY s."requestedAt" DESC;
     `, professional.id);
 
-    // Formateo manteniendo la misma estructura que tenías
+/*    // Formateo manteniendo la misma estructura que tenías
     const formattedServices = services.map((service: any) => {
       const distanceKm = service.distanceKm 
         ? parseFloat(service.distanceKm).toFixed(2) 
@@ -351,6 +356,43 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
     });
 
     console.log(`📋 [PROFESSIONAL/MY] Profesional ${professional.fullName} → ${services.length} servicios`);
+
+    res.json({
+      message: 'Mis servicios como profesional',
+      services: formattedServices,
+      professional: {
+        id: professional.id,
+        fullName: professional.fullName,
+        profession: professional.profession
+      }
+    });
+*/
+
+    const formattedServices = services.map((service: any) => ({
+          id: service.id,
+          type: service.type,
+          status: service.status,
+          amount: service.amount,
+          requestedAt: service.requestedAt,
+          acceptedAt: service.acceptedAt,
+          pickupLat: service.pickupLat,
+          pickupLng: service.pickupLng,
+      
+          // === INFORMACIÓN DETALLADA DE DIRECCIÓN ===
+          pickupAddress: service.pickupAddress,
+          pickupAddressExtra: service.pickupAddressExtra,
+          reference: service.reference,
+          floor: service.floor,
+          doorNumber: service.doorNumber,
+
+          distanceKm: Number(parseFloat(service.distanceKm || 0).toFixed(2)),
+
+          requester: {
+            firstName: service.firstName,
+            lastName: service.lastName,
+            fullName: [service.firstName, service.lastName].filter(Boolean).join(' ').trim() || 'Cliente',
+          }
+        }));
 
     res.json({
       message: 'Mis servicios como profesional',
@@ -949,10 +991,10 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  const { type, pickupLat, pickupLng, pickupAddress, cityId, provinceId } = req.body;
+  const { type, pickupLat, pickupLng, pickupAddress, pickupAddressExtra, reference, floor, doorNumber, cityId, provinceId } = req.body;
   const MAX_DISTANCE_KM = 10;   // ← Ajustable por tipo de servicio
 
-  console.log(`🚀 [REQUEST] Solicitud recibida - Type: ${type} | CityId: ${cityId} | ProvinceId: ${provinceId}`);
+  console.log(`🚀 [REQUEST] Solicitud recibida - Type: ${type} | CityId: ${cityId} | ProvinceId: ${provinceId} | Dirección: ${pickupAddress}`);
   console.log(`🚀 [REQUEST] Coordenadas recibidas: Lat=${pickupLat}, Lng=${pickupLng}`);
   
   try {
@@ -960,9 +1002,9 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
-    if (!type || !pickupLat || !pickupLng || !cityId || !provinceId) {
+    if (!type || !pickupLat || !pickupLng || !cityId || !provinceId || !pickupAddress) {
       return res.status(400).json({ 
-        error: 'type, pickupLat, pickupLng, cityId y provinceId son obligatorios' 
+        error: 'type, , pickupLat, pickupLat, pickupLng, cityId y provinceId son obligatorios' 
       });
     }
 
@@ -988,7 +1030,11 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         type: type as any,
         pickupLat: Number(pickupLat),
         pickupLng: Number(pickupLng),
-        pickupAddress: pickupAddress || null,
+        pickupAddress: pickupAddress.trim(),
+        pickupAddressExtra: pickupAddressExtra?.trim() || null,
+        reference: reference?.trim() || null,
+        floor: floor?.trim() || null,
+        doorNumber: doorNumber?.trim() || null,
         cityId: cityId,
         provinceId: provinceId,
         status: 'REQUESTED',
