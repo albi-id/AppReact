@@ -367,7 +367,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
       }
     });
 */
-
+/*esta es la ultima version pero me hace fallar los mjes
     const formattedServices = services.map((service: any) => ({
           id: service.id,
           type: service.type,
@@ -393,6 +393,48 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
             fullName: [service.firstName, service.lastName].filter(Boolean).join(' ').trim() || 'Cliente',
           }
         }));
+*/
+        // Formateo manteniendo la misma estructura que tenías
+    const formattedServices = services.map((service: any) => {
+      const distanceKm = service.distanceKm 
+        ? parseFloat(service.distanceKm).toFixed(2) 
+        : "0.00";
+
+      return {
+        id: service.id,
+        type: service.type,
+        status: service.status,
+        amount: service.amount,
+        requestedAt: service.requestedAt,
+        acceptedAt: service.acceptedAt,
+        arrivedAt: service.arrivedAt,
+        completedAt: service.completedAt,
+        paidAt: service.paidAt,
+        pickupLat: service.pickupLat,
+        pickupLng: service.pickupLng,
+
+        // === NUEVOS CAMPOS DE DIRECCIÓN ===
+        pickupAddress: service.pickupAddress,
+        pickupAddressExtra: service.pickupAddressExtra,
+        reference: service.reference,
+        floor: service.floor,
+        doorNumber: service.doorNumber,
+
+        distanceKm: Number(distanceKm),
+
+        // === ESTRUCTURA DEL REQUESTER (mantener exactamente como estaba) ===
+        requester: service.requesterId ? {
+          id: service.requesterId,
+          firstName: service.firstName,
+          lastName: service.lastName,
+          email: service.email,
+          fullName: [service.firstName, service.lastName]
+            .filter(Boolean)
+            .join(' ')
+            .trim() || 'Usuario'
+        } : null,
+      };
+    });   
 
     res.json({
       message: 'Mis servicios como profesional',
