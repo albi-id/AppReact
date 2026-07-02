@@ -2018,11 +2018,17 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          { requesterId: userId, professionalId: professionalId },
-          { requesterId: professionalId, professionalId: userId }
+          {
+            requesterId: userId,
+            professional: { userId: professionalId }
+          },
+          {
+            requesterId: professionalId,
+            professional: { userId: userId }
+          }
         ]
       },
-      select: { id: true, professionalId: true, requesterId: true }
+      select: { id: true, type: true, status: true, requestedAt: true }
     });
 
     console.log(`🔍 Services encontrados con este professionalId: ${services.length}`);
