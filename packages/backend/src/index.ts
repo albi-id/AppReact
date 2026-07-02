@@ -2001,7 +2001,7 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
   }
 });
 */
-// HU-32: Obtener mensajes con un profesional específico (Versión Corregida)
+// HU-32: Mensajes unificados (Chats directos + Servicios)
 app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
   const { professionalId } = req.params;   // ID del Usuario Profesional
@@ -2009,60 +2009,56 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
-    // Búsqueda estricta: solo chats entre estos dos usuarios específicos
+    // Búsqueda estricta: solo conversaciones entre estos dos usuarios específicos
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          {
-            requesterId: userId,
-            professional: { userId: professionalId }   // Relación correcta
+          // Caso 1: Usuario solicitó → Profesional
+          { 
+            requesterId: userId, 
+            professional: { userId: professionalId } 
           },
-          {
-            requesterId: professionalId,
-            professional: { userId: userId }
+          // Caso 2: Profesional solicitó → Usuario (raro pero posible)
+          { 
+            requesterId: professionalId, 
+            professional: { userId: userId } 
           }
-        ],
-        // Opcional: filtrar solo chats o servicios activos
-        // type: { in: ['CHAT', 'OFFERED', 'ACCEPTED', 'ARRIVED'] }
+        ]
       },
-      select: { id: true }
+      select: { id: true, type: true, status: true }
     });
 
     const serviceIds = services.map(s => s.id);
 
-    console.log(`🔍 Services encontrados entre estos usuarios: ${services.length} → IDs:`, serviceIds);
+    console.log(`🔍 Services encontrados entre estos usuarios: ${services.length} (IDs: ${serviceIds.join(', ')})`);
 
     if (serviceIds.length === 0) {
       return res.json({ messages: [] });
     }
 
-    // Obtener solo los mensajes de estos services específicos
+    // Solo mensajes de estos services específicos
     const messages = await prisma.message.findMany({
       where: { 
         serviceId: { in: serviceIds }
       },
       include: {
         sender: {
-          select: { 
-            id: true, 
-            firstName: true, 
-            lastName: true 
-          }
+          select: { id: true, firstName: true, lastName: true }
         }
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { id: 'asc' }
     });
 
-    console.log(`✅ Mensajes unificados encontrados: ${messages.length}`);
+    console.log(`✅ Mensajes cargados correctamente: ${messages.length}`);
 
     res.json({ messages });
 
   } catch (error: any) {
-    console.error('💥 Error unificado:', error);
-    res.status(500).json({ error: 'Error al cargar historial de mensajes' });
+    console.error('💥 Error en /chats/:professionalId/messages:', error);
+    res.status(500).json({ error: 'Error al cargar mensajes' });
   }
 });
- 
+
 // Generar URL firmada para subir documentos
 app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
   try {
