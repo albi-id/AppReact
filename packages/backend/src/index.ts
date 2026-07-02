@@ -2015,20 +2015,47 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
 
   try {
     // Buscar services con el professionalId recibido
+    /*const services = await prisma.service.findMany({
+      where: {
+        OR: [
+          { requesterId: userId, professionalId: professionalId },
+          { requesterId: professionalId, professionalId: userId }
+        ]
+      },
+      select: { id: true, professionalId: true, requesterId: true }
+    });*/
+        // BÚSQUEDA COMBINADA - Lo mejor de ambas versiones
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          {
-            requesterId: userId,
-            professional: { userId: professionalId }
+          // Caso 1: Búsqueda directa por professionalId (como tenías antes)
+          { 
+            requesterId: userId, 
+            professionalId: professionalId 
           },
-          {
-            requesterId: professionalId,
-            professional: { userId: userId }
+          { 
+            requesterId: professionalId, 
+            professionalId: userId 
+          },
+          
+          // Caso 2: Búsqueda por relación professional.userId (más robusta)
+          { 
+            requesterId: userId, 
+            professional: { userId: professionalId } 
+          },
+          { 
+            requesterId: professionalId, 
+            professional: { userId: userId } 
           }
         ]
       },
-      select: { id: true, type: true, status: true, requestedAt: true }
+      select: { 
+        id: true, 
+        type: true, 
+        status: true, 
+        requestedAt: true 
+      },
+      orderBy: { id: 'desc' }
     });
 
     console.log(`🔍 Services encontrados con este professionalId: ${services.length}`);
