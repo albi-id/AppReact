@@ -2001,61 +2001,64 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
   }
 });
 */
-// HU-32: Mensajes unificados (Chats directos + Servicios)
+// HU-32: Mensajes unificados - TODAS las conversaciones con un profesional
 app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
-  const { professionalId } = req.params;   // ID del Usuario Profesional
+  const { professionalId } = req.params;
 
   console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
-    // Búsqueda estricta: solo conversaciones entre estos dos usuarios específicos
+    // Buscar TODOS los services entre estos dos usuarios
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          // Caso 1: Usuario solicitó → Profesional
           { 
             requesterId: userId, 
             professional: { userId: professionalId } 
           },
-          // Caso 2: Profesional solicitó → Usuario (raro pero posible)
           { 
             requesterId: professionalId, 
             professional: { userId: userId } 
           }
         ]
       },
-      select: { id: true, type: true, status: true }
+      select: { id: true },
+      orderBy: { id: 'desc' }
     });
 
     const serviceIds = services.map(s => s.id);
 
-    console.log(`🔍 Services encontrados entre estos usuarios: ${services.length} (IDs: ${serviceIds.join(', ')})`);
+    console.log(`🔍 Total de services encontrados: ${services.length} → IDs: ${serviceIds.join(', ')}`);
 
     if (serviceIds.length === 0) {
       return res.json({ messages: [] });
     }
 
-    // Solo mensajes de estos services específicos
+    // Traer TODOS los mensajes de TODOS los services
     const messages = await prisma.message.findMany({
       where: { 
         serviceId: { in: serviceIds }
       },
       include: {
         sender: {
-          select: { id: true, firstName: true, lastName: true }
+          select: { 
+            id: true, 
+            firstName: true, 
+            lastName: true 
+          }
         }
       },
-      orderBy: { id: 'asc' }
+      orderBy: { createdAt: 'asc' }   // Orden cronológico global
     });
 
-    console.log(`✅ Mensajes cargados correctamente: ${messages.length}`);
+    console.log(`✅ Total mensajes unificados: ${messages.length}`);
 
     res.json({ messages });
 
   } catch (error: any) {
-    console.error('💥 Error en /chats/:professionalId/messages:', error);
-    res.status(500).json({ error: 'Error al cargar mensajes' });
+    console.error('💥 Error en unified messages:', error);
+    res.status(500).json({ error: 'Error al cargar historial completo' });
   }
 });
 
