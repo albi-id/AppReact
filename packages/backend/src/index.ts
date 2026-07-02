@@ -2038,14 +2038,8 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
       const services2 = await prisma.service.findMany({
         where: {
           OR: [
-            { 
-              requesterId: userId, 
-              professional: { userId: professionalId } 
-            },
-            { 
-              requesterId: professionalId, 
-              professional: { userId: userId } 
-            }
+            { requesterId: userId },
+            { professional: { userId: professionalId } }
           ]
         },
         include: { professional: true }
