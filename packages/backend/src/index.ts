@@ -1789,36 +1789,39 @@ app.post('/services/create', authenticate, async (req: any, res: any) => {
 
 // Encontrar o crear chat entre usuario y profesional
 app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
-  const { professionalId } = req.body;
+  const { professionalId } = req.body;   // Este debe ser el ID del Usuario Profesional
   const userId = req.user.id;
 
-  console.log(`🔄 find-or-create - User: ${userId} | Professional: ${professionalId}`);
+  console.log(`🔄 find-or-create - User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
     if (!professionalId) {
       return res.status(400).json({ error: 'professionalId es requerido' });
     }
 
-    // Buscar servicio existente (priorizando los que no estén COMPLETED)
+    // Búsqueda más estricta: solo entre estos dos usuarios específicos
     let service = await prisma.service.findFirst({
       where: {
         OR: [
-          { requesterId: userId, professional: { userId: professionalId } },
-          { requesterId: professionalId, professional: { userId: userId } }
-        ]
+          {
+            requesterId: userId,
+            professional: { userId: professionalId }
+          },
+          {
+            requesterId: professionalId,
+            professional: { userId: userId }
+          }
+        ],
+        type: 'CHAT'   // Solo chats, no servicios reales
       },
-      orderBy: [
-        { status: 'asc' },      // Prioriza ACTIVE, CHAT, etc. sobre COMPLETED
-        { id: 'desc' }
-      ]
+      orderBy: { requestedAt: 'desc' }
     });
 
     if (!service) {
-      // Crear nuevo solo si realmente no existe
       service = await prisma.service.create({
         data: {
           requesterId: userId,
-          professionalId: professionalId,
+          professionalId: professionalId,   // ID de la tabla Professional
           type: 'CHAT',
           status: 'CHAT',
           requestedAt: new Date(),
@@ -1826,9 +1829,7 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
       });
       console.log(`💬 Nuevo chat creado - ID: ${service.id}`);
     } else {
-      console.log(`♻️ Servicio encontrado - ID: ${service.id} | Status: ${service.status}`);
-      
-   
+      console.log(`♻️ Chat existente encontrado - ID: ${service.id}`);
     }
 
     res.json({ 
