@@ -1459,59 +1459,53 @@ app.patch('/services/:serviceId/finish-fixed', authenticate, async (req: any, re
 
 // ==================== CHAT ====================
  
-// Enviar mensaje en un servicio
+// Enviar mensaje - Versión más segura
 app.post('/services/:serviceId/messages', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
   const { content } = req.body;
 
-  console.log(`📩 [MESSAGE] Intentando enviar mensaje - serviceId: ${serviceId} | Usuario: ${req.user.id}`);
+  console.log(`📩 [MESSAGE] serviceId: ${serviceId} | Usuario: ${req.user.id}`);
 
   try {
     if (!content?.trim()) {
       return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
     }
 
-    if (!serviceId) {
+  if (!serviceId) {
       return res.status(400).json({ error: 'serviceId es requerido' });
     }
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },
       include: {
-        professional: {
-          include: { user: true }
-        },
-        requester: true
+        requester: true,
+        professional: { include: { user: true } }
       }
     });
 
     if (!service) {
-      console.error(`❌ Servicio no encontrado: ${serviceId}`);
       return res.status(404).json({ error: 'Servicio no encontrado' });
     }
 
     const isRequester = service.requesterId === req.user.id;
     const isProfessional = service.professional?.user?.id === req.user.id;
 
-    console.log(`🔍 Participante - Requester: ${isRequester}, Professional: ${isProfessional}`);
-
     if (!isRequester && !isProfessional) {
-      return res.status(403).json({ error: 'No tienes permiso para chatear en este servicio' });
+      return res.status(403).json({ error: 'No tienes permiso para chatear aquí' });
     }
 
-    // === CORRECCIÓN DEL receiverId ===
-    let receiverId: any;
+    // Bloqueo fuerte: No permitir enviarse mensajes a sí mismo
+    if ((isRequester && service.professional?.user?.id === req.user.id) || 
+        (isProfessional && service.requesterId === req.user.id)) {
+      return res.status(400).json({ error: 'No puedes enviarte mensajes a ti mismo' });
+    }
 
-    if (isRequester) {
-      receiverId = service.professional?.user?.id;
-      if (!receiverId) {
-        return res.status(500).json({ error: 'No se pudo identificar el profesional' });
-      }
-    } else {
-      receiverId = service.requesterId;
-      if (!receiverId) {
-        return res.status(500).json({ error: 'No se pudo identificar el usuario' });
-      }
+    const receiverId = isRequester 
+      ? service.professional?.user?.id 
+      : service.requesterId;
+
+    if (!receiverId) {
+      return res.status(500).json({ error: 'No se pudo determinar destinatario' });
     }
 
     const message = await prisma.message.create({
@@ -1522,13 +1516,11 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
         content: content.trim()
       },
       include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
+        sender: { select: { id: true, firstName: true, lastName: true } }
       }
     });
 
-    console.log(`✅ Mensaje enviado correctamente en servicio ${serviceId}`);
+    console.log(`✅ Mensaje enviado correctamente`);
 
     res.status(201).json({ 
       message: 'Mensaje enviado correctamente',
@@ -1537,7 +1529,7 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
 
   } catch (error: any) {
     console.error('💥 Error al enviar mensaje:', error);
-    res.status(500).json({ error: 'Error interno al enviar el mensaje' });
+    res.status(500).json({ error: 'Error interno al enviar mensaje' });
   }
 });
 
@@ -1810,8 +1802,10 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
     // Buscar servicio existente (priorizando los que no estén COMPLETED)
     let service = await prisma.service.findFirst({
       where: {
-        requesterId: userId,
-        professionalId: professionalId,
+        OR: [
+          { requesterId: userId, professional: { userId: professionalId } },
+          { requesterId: professionalId, professional: { userId: userId } }
+        ]
       },
       orderBy: [
         { status: 'asc' },      // Prioriza ACTIVE, CHAT, etc. sobre COMPLETED
