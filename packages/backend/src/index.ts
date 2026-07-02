@@ -35,6 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
+/*
 // ==================== RATE LIMITING ====================
 const limiter = rateLimit({
   windowMs: 60 * 1000,        // 1 minuto
@@ -74,7 +75,7 @@ app.use('/login', authLimiter);
 app.use('/services/request', apiLimiter);   // Endpoint crítico
 app.use('/upload', apiLimiter);
 app.use('/professionals', strictLimiter);   
-
+*/
 
 const port = Number(process.env.PORT) || 10000;
 
@@ -367,33 +368,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
       }
     });
 */
-/*esta es la ultima version pero me hace fallar los mjes
-    const formattedServices = services.map((service: any) => ({
-          id: service.id,
-          type: service.type,
-          status: service.status,
-          amount: service.amount,
-          requestedAt: service.requestedAt,
-          acceptedAt: service.acceptedAt,
-          pickupLat: service.pickupLat,
-          pickupLng: service.pickupLng,
-      
-          // === INFORMACIÓN DETALLADA DE DIRECCIÓN ===
-          pickupAddress: service.pickupAddress,
-          pickupAddressExtra: service.pickupAddressExtra,
-          reference: service.reference,
-          floor: service.floor,
-          doorNumber: service.doorNumber,
 
-          distanceKm: Number(parseFloat(service.distanceKm || 0).toFixed(2)),
-
-          requester: {
-            firstName: service.firstName,
-            lastName: service.lastName,
-            fullName: [service.firstName, service.lastName].filter(Boolean).join(' ').trim() || 'Cliente',
-          }
-        }));
-*/
         // Formateo manteniendo la misma estructura que tenías
     const formattedServices = services.map((service: any) => {
       const distanceKm = service.distanceKm 
