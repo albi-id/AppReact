@@ -2006,48 +2006,78 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
   }
 });
 */
-// HU-32: Mensajes unificados - TODAS las conversaciones con un profesional
-// HU-32: Mensajes unificados - Versión Limpia y Estable
 app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
   const { professionalId } = req.params;
 
+  console.log(`📡 [UNIFIED DEBUG] User: ${userId} | Professional recibido: ${professionalId}`);
+
   try {
-    // Buscar TODOS los servicios entre estos dos usuarios específicos
+    // Buscar services con el professionalId recibido
     const services = await prisma.service.findMany({
       where: {
         OR: [
           { requesterId: userId, professionalId: professionalId },
-          { requesterId: professionalId, professionalId: userId },
-          { requesterId: userId, professional: { userId: professionalId } },
-          { requesterId: professionalId, professional: { userId: userId } }
+          { requesterId: professionalId, professionalId: userId }
         ]
       },
-      select: { id: true }
+      select: { id: true, professionalId: true, requesterId: true }
     });
+
+    console.log(`🔍 Services encontrados con este professionalId: ${services.length}`);
+    if (services.length > 0) {
+      console.log('Services IDs:', services.map(s => s.id));
+    }
 
     const serviceIds = services.map(s => s.id);
 
     if (serviceIds.length === 0) {
-      return res.json({ messages: [] });
+      // Intentar buscar por si el professionalId es de la tabla Professional
+      console.log('⚠️ No se encontraron services. Intentando buscar por relación Professional...');
+      
+      const services2 = await prisma.service.findMany({
+        where: {
+          OR: [
+            { 
+              requesterId: userId, 
+              professional: { userId: professionalId } 
+            },
+            { 
+              requesterId: professionalId, 
+              professional: { userId: userId } 
+            }
+          ]
+        },
+        include: { professional: true }
+      });
+
+      console.log(`🔍 Services encontrados usando relación Professional.userId: ${services2.length}`);
+      const serviceIds2 = services2.map(s => s.id);
+
+      if (serviceIds2.length > 0) {
+        const messages = await prisma.message.findMany({
+          where: { serviceId: { in: serviceIds2 } },
+          include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+          orderBy: { id: 'asc' }
+        });
+
+        console.log(`✅ Mensajes encontrados (usando relación): ${messages.length}`);
+        return res.json({ messages });
+      }
     }
 
+    // Búsqueda normal
     const messages = await prisma.message.findMany({
-      where: { 
-        serviceId: { in: serviceIds }
-      },
-      include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
-      },
-      orderBy: { createdAt: 'asc' }
+      where: { serviceId: { in: serviceIds } },
+      include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { id: 'asc' }
     });
 
+    console.log(`✅ Mensajes unificados finales: ${messages.length}`);
     res.json({ messages });
 
   } catch (error: any) {
-    console.error('Error al cargar mensajes unificados:', error);
+    console.error('💥 Error unificado:', error);
     res.status(500).json({ error: 'Error al cargar historial' });
   }
 });
