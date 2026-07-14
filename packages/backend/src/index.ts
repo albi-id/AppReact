@@ -2014,70 +2014,55 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   const userId = req.user.id;
   const { professionalId } = req.params;
 
-  console.log(`📡 [UNIFIED DEBUG] User: ${userId} | Professional recibido: ${professionalId}`);
+  console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
-    // Buscar services con el professionalId recibido
+    // Búsqueda amplia pero precisa para ambos roles
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          { requesterId: userId, professionalId: professionalId },
-          { requesterId: professionalId, professionalId: userId }
+          // Usuario actual es requester y profesional es el indicado
+          { 
+            requesterId: userId, 
+            professional: { userId: professionalId } 
+          },
+          // Usuario actual es el profesional
+          { 
+            requesterId: professionalId, 
+            professional: { userId: userId } 
+          },
+          // Búsqueda directa por ID de Professional (por si viene de tabla Professional)
+          { 
+            requesterId: userId, 
+            professionalId: professionalId 
+          }
         ]
       },
-      select: { id: true, professionalId: true, requesterId: true }
+      select: { id: true }
     });
-
-    console.log(`🔍 Services encontrados con este professionalId: ${services.length}`);
-    if (services.length > 0) {
-      console.log('Services IDs:', services.map(s => s.id));
-    }
 
     const serviceIds = services.map(s => s.id);
 
+    console.log(`🔍 Total services encontrados: ${services.length} → IDs: ${serviceIds.join(', ')}`);
+
     if (serviceIds.length === 0) {
-      // Intentar buscar por si el professionalId es de la tabla Professional
-      console.log('⚠️ No se encontraron services. Intentando buscar por relación Professional...');
-      
-      const services2 = await prisma.service.findMany({
-        where: {
-          OR: [
-            { 
-              requesterId: userId, 
-              professional: { userId: professionalId } 
-            },
-            { 
-              requesterId: professionalId, 
-              professional: { userId: userId } 
-            }
-          ]
-        },
-        include: { professional: true }
-      });
-
-      console.log(`🔍 Services encontrados usando relación Professional.userId: ${services2.length}`);
-      const serviceIds2 = services2.map(s => s.id);
-
-      if (serviceIds2.length > 0) {
-        const messages = await prisma.message.findMany({
-          where: { serviceId: { in: serviceIds2 } },
-          include: { sender: { select: { id: true, firstName: true, lastName: true } } },
-          orderBy: { id: 'asc' }
-        });
-
-        console.log(`✅ Mensajes encontrados (usando relación): ${messages.length}`);
-        return res.json({ messages });
-      }
+      return res.json({ messages: [] });
     }
 
-    // Búsqueda normal
     const messages = await prisma.message.findMany({
-      where: { serviceId: { in: serviceIds } },
-      include: { sender: { select: { id: true, firstName: true, lastName: true } } },
-      orderBy: { id: 'asc' }
+      where: { 
+        serviceId: { in: serviceIds }
+      },
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
     });
 
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
+
     res.json({ messages });
 
   } catch (error: any) {
