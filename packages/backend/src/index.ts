@@ -2035,6 +2035,10 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
           { 
             requesterId: userId, 
             professionalId: professionalId 
+          },
+          { 
+            requesterId: professionalId, 
+            professionalId: userId 
           }
         ]
       },
@@ -2102,6 +2106,8 @@ app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
     res.status(500).json({ error: error.message || 'Error interno' });
   }
 });
+
+
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
