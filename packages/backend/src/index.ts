@@ -2021,19 +2021,26 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     const services = await prisma.service.findMany({
       where: {
         OR: [
-      {
-        requesterId: userId,
-        professional: {
-          userId: professionalId
-        }
-      },
-      {
-        requesterId: professionalId,
-        professional: {
-          userId: userId
-        }
-      }
-    ]
+          // Usuario actual es requester y profesional es el indicado
+          { 
+            requesterId: userId, 
+            professional: { userId: professionalId } 
+          },
+          // Usuario actual es el profesional
+          { 
+            requesterId: professionalId, 
+            professional: { userId: userId } 
+          },
+          // Búsqueda directa por ID de Professional (por si viene de tabla Professional)
+          { 
+            requesterId: userId, 
+            professionalId: professionalId 
+          },
+          { 
+            requesterId: professionalId, 
+            professionalId: userId 
+          }
+        ]
       },
       select: { id: true }
     });
@@ -2046,16 +2053,29 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
       return res.json({ messages: [] });
     }
 
-    const messages = await prisma.message.findMany({
+    console.log({   userId,  professionalId});
+    const professional = await prisma.professional.findUnique({
   where: {
-    serviceId: {
-      in: services.map(s => s.id)
-    }
+    id: professionalId
   },
-  orderBy: {
-    id: "asc"
+  select: {
+    userId: true
   }
 });
+
+console.log("professional encontrado:", professional);
+
+    const messages = await prisma.message.findMany({
+      where: { 
+        serviceId: { in: serviceIds }
+      },
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      },
+      orderBy: { id: 'asc' }
+    });
 
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
 
