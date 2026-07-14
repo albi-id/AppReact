@@ -2011,56 +2011,35 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
 });
 */
 app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
-
+  const userId = req.user.id;
   const { professionalId } = req.params;
-const { serviceId } = req.query;
-  const userId = req.user.id; 
 
-const professional = await prisma.professional.findUnique({
-  where: {
-    userId: professionalId
-  },
-  select: {
-    id: true,
-    userId: true
-  }
-});
-
-if (!professional) {
-  return res.status(404).json({
-    error: "Profesional no encontrado"
-  });
-}
-
-const professionalUserId = professional.userId;
-const professionalTableId = professional.id;
-
-console.log({
-  userId,
-  paramProfessionalId: professionalId,
-  professionalTableId: professional.id,
-  professionalUserId: professional.userId
-});
+  console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
-    // Búsqueda amplia pero precisa para ambos roles
-   const services = await prisma.service.findMany({
-  where: {
-    OR: [
-      {
-        requesterId: userId,
-        professionalId: professionalTableId
+    // Búsqueda máxima inclusiva
+    const services = await prisma.service.findMany({
+      where: {
+        OR: [
+          // Usuario actual solicita al profesional
+          { 
+            requesterId: userId, 
+            professional: { userId: professionalId } 
+          },
+          // Profesional solicita al usuario
+          { 
+            requesterId: professionalId, 
+            professional: { userId: userId } 
+          },
+          // Búsqueda directa por professionalId (tabla Professional)
+          { 
+            requesterId: userId, 
+            professionalId: professionalId 
+          }
+        ]
       },
-      {
-        requesterId: professionalUserId,
-        professionalId: professionalTableId
-      }
-    ]
-  },
-  select: {
-    id: true
-  }
-});
+      select: { id: true }
+    });
 
     const serviceIds = services.map(s => s.id);
 
@@ -2070,21 +2049,19 @@ console.log({
       return res.json({ messages: [] });
     }
 
-
-const messages = await prisma.message.findMany({
-  where: {
-    serviceId: serviceId as string
-  },
-  orderBy: {
-    createdAt: "asc"
-  }
-});
+    const messages = await prisma.message.findMany({
+      where: { 
+        serviceId: { in: serviceIds }
+      },
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
 
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
-
-    
-
-console.log("📨 Mensajes encontrados:", messages.length);
 
     res.json({ messages });
 
