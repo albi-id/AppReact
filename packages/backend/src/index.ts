@@ -2014,6 +2014,23 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   const userId = req.user.id;
   const { professionalId } = req.params;
 
+  //quitar luego
+console.log("👤 Usuario autenticado:", userId);
+
+console.log("👨‍🔧 Professional recibido:", professionalId);
+
+const professional = await prisma.professional.findUnique({
+  where: {
+    id: professionalId
+  },
+  select: {
+    userId: true
+  }
+});
+
+console.log("🔎 Professional encontrado:", professional);
+//hasta aqui
+
   console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
@@ -2053,17 +2070,6 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
       return res.json({ messages: [] });
     }
 
-    console.log({   userId,  professionalId});
-    const professional = await prisma.professional.findUnique({
-  where: {
-    id: professionalId
-  },
-  select: {
-    userId: true
-  }
-});
-
-console.log("professional encontrado:", professional);
 
     const messages = await prisma.message.findMany({
       where: { 
@@ -2078,6 +2084,15 @@ console.log("professional encontrado:", professional);
     });
 
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
+
+    //quitar luego
+    console.log("📨 Filtro mensajes:", {
+  userId,
+  professionalUserId: professional?.userId
+});
+//hasta aqui
+
+console.log("📨 Mensajes encontrados:", messages.length);
 
     res.json({ messages });
 
