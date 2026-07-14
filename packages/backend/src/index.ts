@@ -1810,8 +1810,12 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
     // Buscar servicio existente (priorizando los que no estén COMPLETED)
     let service = await prisma.service.findFirst({
       where: {
-        requesterId: userId,
-        professionalId: professionalId,
+      OR: [
+          { requesterId: userId, professionalId: professionalId },
+          { requesterId: professionalId, professionalId: userId },
+          { requesterId: userId, professional: { userId: professionalId } },
+          { requesterId: professionalId, professional: { userId: userId } }
+        ]
       },
       orderBy: [
         { status: 'asc' },      // Prioriza ACTIVE, CHAT, etc. sobre COMPLETED
