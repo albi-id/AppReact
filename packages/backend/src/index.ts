@@ -2021,26 +2021,19 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          // Usuario actual es requester y profesional es el indicado
-          { 
-            requesterId: userId, 
-            professional: { userId: professionalId } 
-          },
-          // Usuario actual es el profesional
-          { 
-            requesterId: professionalId, 
-            professional: { userId: userId } 
-          },
-          // Búsqueda directa por ID de Professional (por si viene de tabla Professional)
-          { 
-            requesterId: userId, 
-            professionalId: professionalId 
-          },
-          { 
-            requesterId: professionalId, 
-            professionalId: userId 
-          }
-        ]
+      {
+        requesterId: userId,
+        professional: {
+          userId: professionalId
+        }
+      },
+      {
+        requesterId: professionalId,
+        professional: {
+          userId: userId
+        }
+      }
+    ]
       },
       select: { id: true }
     });
@@ -2054,16 +2047,15 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     }
 
     const messages = await prisma.message.findMany({
-      where: { 
-        serviceId: { in: serviceIds }
-      },
-      include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
-      },
-      orderBy: { id: 'asc' }
-    });
+  where: {
+    serviceId: {
+      in: services.map(s => s.id)
+    }
+  },
+  orderBy: {
+    id: "asc"
+  }
+});
 
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
 
