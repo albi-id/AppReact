@@ -2014,11 +2014,12 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   const userId = req.user.id;
   const { professionalId } = req.params;
 
- const professional = await prisma.professional.findUnique({
+const professional = await prisma.professional.findUnique({
   where: {
-    id: professionalId
+    userId: professionalId
   },
   select: {
+    id: true,
     userId: true
   }
 });
@@ -2030,8 +2031,14 @@ if (!professional) {
 }
 
 const professionalUserId = professional.userId;
+const professionalTableId = professional.id;
 
-  console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
+console.log({
+  userId,
+  paramProfessionalId: professionalId,
+  professionalTableId: professional.id,
+  professionalUserId: professional.userId
+});
 
   try {
     // Búsqueda amplia pero precisa para ambos roles
@@ -2040,11 +2047,11 @@ const professionalUserId = professional.userId;
     OR: [
       {
         requesterId: userId,
-        professionalId: professionalId
+        professionalId: professionalTableId
       },
       {
         requesterId: professionalUserId,
-        professionalId: professionalId
+        professionalId: professionalTableId
       }
     ]
   },
