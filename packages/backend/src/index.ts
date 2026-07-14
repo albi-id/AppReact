@@ -2050,17 +2050,27 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     }
 
     const messages = await prisma.message.findMany({
-      where: { 
-        serviceId: { in: serviceIds }
-      },
-      include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
-      },
-      orderBy: { createdAt: 'asc' }
-    });
-
+  where: { 
+    serviceId: { in: serviceIds }
+  },
+  include: {
+    sender: {
+      select: { 
+        id: true, 
+        firstName: true, 
+        lastName: true 
+      }
+    },
+    receiver: {
+      select: { 
+        id: true, 
+        firstName: true, 
+        lastName: true 
+      }
+    }
+  },
+  orderBy: { createdAt: 'asc' }
+});
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
 
     res.json({ messages });
