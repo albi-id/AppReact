@@ -2011,8 +2011,10 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
 });
 */
 app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
-  const userId = req.user.id;
+
   const { professionalId } = req.params;
+const { serviceId } = req.query;
+  const userId = req.user.id; 
 
 const professional = await prisma.professional.findUnique({
   where: {
@@ -2071,7 +2073,7 @@ console.log({
 
 const messages = await prisma.message.findMany({
   where: {
-    serviceId: req.params.serviceId
+    serviceId: serviceId as string
   },
   orderBy: {
     createdAt: "asc"
