@@ -2069,18 +2069,9 @@ console.log({
     }
 
 
-   const messages = await prisma.message.findMany({
+const messages = await prisma.message.findMany({
   where: {
-    OR: [
-      {
-        senderId: userId,
-        receiverId: professionalUserId
-      },
-      {
-        senderId: professionalUserId,
-        receiverId: userId
-      }
-    ]
+    serviceId: req.params.serviceId
   },
   orderBy: {
     createdAt: "asc"
