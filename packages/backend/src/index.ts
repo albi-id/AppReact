@@ -2014,12 +2014,7 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   const userId = req.user.id;
   const { professionalId } = req.params;
 
-  //quitar luego
-console.log("👤 Usuario autenticado:", userId);
-
-console.log("👨‍🔧 Professional recibido:", professionalId);
-
-const professional = await prisma.professional.findUnique({
+ const professional = await prisma.professional.findUnique({
   where: {
     id: professionalId
   },
@@ -2028,39 +2023,35 @@ const professional = await prisma.professional.findUnique({
   }
 });
 
-console.log("🔎 Professional encontrado:", professional);
-//hasta aqui
+if (!professional) {
+  return res.status(404).json({
+    error: "Profesional no encontrado"
+  });
+}
+
+const professionalUserId = professional.userId;
 
   console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
     // Búsqueda amplia pero precisa para ambos roles
-    const services = await prisma.service.findMany({
-      where: {
-        OR: [
-          // Usuario actual es requester y profesional es el indicado
-          { 
-            requesterId: userId, 
-            professional: { userId: professionalId } 
-          },
-          // Usuario actual es el profesional
-          { 
-            requesterId: professionalId, 
-            professional: { userId: userId } 
-          },
-          // Búsqueda directa por ID de Professional (por si viene de tabla Professional)
-          { 
-            requesterId: userId, 
-            professionalId: professionalId 
-          },
-          { 
-            requesterId: professionalId, 
-            professionalId: userId 
-          }
-        ]
+   const services = await prisma.service.findMany({
+  where: {
+    OR: [
+      {
+        requesterId: userId,
+        professionalId: professionalId
       },
-      select: { id: true }
-    });
+      {
+        requesterId: professionalUserId,
+        professionalId: professionalId
+      }
+    ]
+  },
+  select: {
+    id: true
+  }
+});
 
     const serviceIds = services.map(s => s.id);
 
@@ -2071,26 +2062,27 @@ console.log("🔎 Professional encontrado:", professional);
     }
 
 
-    const messages = await prisma.message.findMany({
-      where: { 
-        serviceId: { in: serviceIds }
+   const messages = await prisma.message.findMany({
+  where: {
+    OR: [
+      {
+        senderId: userId,
+        receiverId: professionalUserId
       },
-      include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
-      },
-      orderBy: { id: 'asc' }
-    });
+      {
+        senderId: professionalUserId,
+        receiverId: userId
+      }
+    ]
+  },
+  orderBy: {
+    createdAt: "asc"
+  }
+});
 
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
 
-    //quitar luego
-    console.log("📨 Filtro mensajes:", {
-  userId,
-  professionalUserId: professional?.userId
-});
-//hasta aqui
+    
 
 console.log("📨 Mensajes encontrados:", messages.length);
 
