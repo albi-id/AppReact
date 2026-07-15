@@ -2091,49 +2091,55 @@ app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
   }
 });
 
-//unificacion de conversaciones desde el lado del profesional
-// HU-33: Mis conversaciones como profesional (simétrico al de usuario)
-app.get('/services/professional/my-conversations', authenticate, async (req: any, res: any) => {
+// HU-34: Mensajes para profesional (versión simétrica y robusta)
+app.get('/chats/professional/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
+  const { professionalId } = req.params;
+
+  console.log(`📡 [CHATS/PROFESSIONAL] Professional: ${userId} | Other User: ${professionalId}`);
 
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
-      return res.status(403).json({ error: 'Solo profesionales pueden ver sus conversaciones' });
+      return res.status(403).json({ error: 'Solo profesionales pueden usar este endpoint' });
     }
 
-    const professional = await prisma.professional.findUnique({
-      where: { userId: userId }
+    const services = await prisma.service.findMany({
+      where: {
+        OR: [
+          { requesterId: userId, professional: { userId: professionalId } },
+          { requesterId: professionalId, professional: { userId: userId } },
+          { requesterId: userId, professionalId: professionalId },
+          { requesterId: professionalId, professionalId: userId }
+        ]
+      },
+      select: { id: true }
     });
 
-    if (!professional) {
-      return res.json({ conversations: [] });
+    const serviceIds = services.map(s => s.id);
+
+    console.log(`🔍 Total services encontrados para profesional: ${services.length}`);
+
+    if (serviceIds.length === 0) {
+      return res.json({ messages: [] });
     }
 
-    const conversations = await prisma.service.findMany({
-      where: {
-        professionalId: professional.id,
-        messages: { some: {} }   // Solo servicios que tengan mensajes
-      },
+    const messages = await prisma.message.findMany({
+      where: { serviceId: { in: serviceIds } },
       include: {
-        requester: {
+        sender: {
           select: { id: true, firstName: true, lastName: true }
-        },
-        messages: {
-          take: 1,
-          orderBy: { createdAt: 'desc' },
-          include: { sender: true }
         }
       },
-      orderBy: { id: 'desc' }
+      orderBy: { createdAt: 'asc' }
     });
 
-    console.log(`📬 [PROFESSIONAL CONVERSATIONS] Profesional ${userId} tiene ${conversations.length} conversaciones`);
+    console.log(`✅ Mensajes cargados para profesional: ${messages.length}`);
 
-    res.json(conversations);
+    res.json({ messages });
 
-  } catch (error) {
-    console.error('Error al obtener conversaciones del profesional:', error);
-    res.status(500).json({ error: 'Error al obtener conversaciones' });
+  } catch (error: any) {
+    console.error('💥 Error en chats/professional:', error);
+    res.status(500).json({ error: 'Error al cargar historial' });
   }
 });
 
