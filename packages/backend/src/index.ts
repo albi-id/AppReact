@@ -2016,6 +2016,12 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
 
   console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
+     // === VALIDACIÓN SELF-CHAT ===
+    if (userId === professionalId) {
+      console.log('🚫 Self-chat detectado, devolviendo vacío');
+      return res.json({ messages: [] });
+    }
+    
   try {
     const services = await prisma.service.findMany({
       where: {
