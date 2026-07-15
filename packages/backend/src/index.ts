@@ -2017,25 +2017,13 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
 
   try {
-    // Búsqueda máxima inclusiva
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          // Usuario actual solicita al profesional
-          { 
-            requesterId: userId, 
-            professional: { userId: professionalId } 
-          },
-          // Profesional solicita al usuario
-          { 
-            requesterId: professionalId, 
-            professional: { userId: userId } 
-          },
-          // Búsqueda directa por professionalId (tabla Professional)
-          { 
-            requesterId: userId, 
-            professionalId: professionalId 
-          }
+          { requesterId: userId, professional: { userId: professionalId } },
+          { requesterId: professionalId, professional: { userId: userId } },
+          { requesterId: userId, professionalId: professionalId },
+          { requesterId: professionalId, professionalId: userId }
         ]
       },
       select: { id: true }
@@ -2050,20 +2038,17 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     }
 
     const messages = await prisma.message.findMany({
-  where: { 
-    serviceId: { in: serviceIds }
-  },
-  include: {
-    sender: {
-      select: { 
-        id: true, 
-        firstName: true, 
-        lastName: true 
-      }
-    } 
-  },
-  orderBy: { createdAt: 'asc' }
-});
+      where: { 
+        serviceId: { in: serviceIds }
+      },
+      include: {
+        sender: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
     console.log(`✅ Mensajes unificados finales: ${messages.length}`);
 
     res.json({ messages });
