@@ -2021,7 +2021,7 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
       console.log('🚫 Self-chat detectado, devolviendo vacío');
       return res.json({ messages: [] });
     }
-    
+
   try {
     const services = await prisma.service.findMany({
       where: {
@@ -2097,6 +2097,7 @@ app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
   }
 });
 
+/*
 // HU-34: Mensajes para profesional (versión simétrica y robusta)
 app.get('/chats/professional/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
@@ -2154,7 +2155,7 @@ app.get('/chats/professional/:professionalId/messages', authenticate, async (req
     res.status(500).json({ error: 'Error al cargar historial' });
   }
 });
-
+*/
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
