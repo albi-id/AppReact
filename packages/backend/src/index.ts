@@ -2060,14 +2060,7 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
         firstName: true, 
         lastName: true 
       }
-    },
-    receiver: {
-      select: { 
-        id: true, 
-        firstName: true, 
-        lastName: true 
-      }
-    }
+    } 
   },
   orderBy: { createdAt: 'asc' }
 });
