@@ -2091,6 +2091,51 @@ app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
   }
 });
 
+//unificacion de conversaciones desde el lado del profesional
+// HU-33: Mis conversaciones como profesional (simétrico al de usuario)
+app.get('/services/professional/my-conversations', authenticate, async (req: any, res: any) => {
+  const userId = req.user.id;
+
+  try {
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden ver sus conversaciones' });
+    }
+
+    const professional = await prisma.professional.findUnique({
+      where: { userId: userId }
+    });
+
+    if (!professional) {
+      return res.json({ conversations: [] });
+    }
+
+    const conversations = await prisma.service.findMany({
+      where: {
+        professionalId: professional.id,
+        messages: { some: {} }   // Solo servicios que tengan mensajes
+      },
+      include: {
+        requester: {
+          select: { id: true, firstName: true, lastName: true }
+        },
+        messages: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+          include: { sender: true }
+        }
+      },
+      orderBy: { id: 'desc' }
+    });
+
+    console.log(`📬 [PROFESSIONAL CONVERSATIONS] Profesional ${userId} tiene ${conversations.length} conversaciones`);
+
+    res.json(conversations);
+
+  } catch (error) {
+    console.error('Error al obtener conversaciones del profesional:', error);
+    res.status(500).json({ error: 'Error al obtener conversaciones' });
+  }
+});
 
 
 app.listen(port, "0.0.0.0", () => {
