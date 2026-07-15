@@ -2103,6 +2103,12 @@ app.get('/chats/professional/:professionalId/messages', authenticate, async (req
       return res.status(403).json({ error: 'Solo profesionales pueden usar este endpoint' });
     }
 
+    // === VALIDACIÓN SELF-CHAT ===
+    if (userId === professionalId) {
+      console.log('🚫 Self-chat detectado, devolviendo vacío');
+      return res.json({ messages: [] });
+    }
+
     const services = await prisma.service.findMany({
       where: {
         OR: [
