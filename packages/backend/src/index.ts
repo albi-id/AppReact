@@ -1867,7 +1867,9 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
       include: {
         requester: { select: { id: true, firstName: true, lastName: true } },
         professional: {
-          include: {
+          select: {
+            id: true,
+            profession: true,          // ← agregado
             user: { select: { id: true, firstName: true, lastName: true } }
           }
         },
@@ -1886,15 +1888,17 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
       const professionalUserId = conv.professional?.user?.id || conv.professionalId;
       const isUserTheProfessional = professionalUserId === userId;
 
-      // El "otro" participante depende de qué rol cumplís VOS en este servicio
       const otherUserId = isUserTheProfessional ? conv.requesterId : professionalUserId;
       const otherUser = isUserTheProfessional ? conv.requester : conv.professional?.user;
 
-      if (!otherUserId || otherUserId === userId) return; // evita self-chat
+      if (!otherUserId || otherUserId === userId) return;
 
       const otherName = otherUser
         ? `${otherUser.firstName || ''} ${otherUser.lastName || ''}`.trim()
         : 'Usuario';
+
+      // Solo tiene profesión si el OTRO participante es el profesional
+      const otherProfession = !isUserTheProfessional ? conv.professional?.profession : null;
 
       const lastMessage = conv.messages[0];
       const lastMessageDate = lastMessage?.createdAt || conv.requestedAt;
@@ -1908,8 +1912,9 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
           status: conv.status,
           otherUserId,
           otherName,
+          otherProfession,           // ← agregado
           lastMessage: lastMessage?.content || null,
-          unreadCount: 0, // TODO: calcular si tenés un campo de leído
+          unreadCount: 0,
           _lastMessageDate: lastMessageDate,
         });
       }
@@ -1917,9 +1922,7 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
 
     const unifiedConversations = Array.from(grouped.values())
       .map(({ _lastMessageDate, ...rest }) => rest)
-      .sort((a: any, b: any) => new Date(b._lm || 0).getTime() - new Date(a._lm || 0).getTime());
-
-    console.log(`📬 [CONVERSATIONS] Usuario ${userId} tiene ${unifiedConversations.length} conversaciones unificadas`);
+      .sort((a: any, b: any) => new Date(b._lastMessageDate || 0).getTime() - new Date(a._lastMessageDate || 0).getTime());
 
     res.json(unifiedConversations);
 
