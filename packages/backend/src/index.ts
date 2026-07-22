@@ -1942,17 +1942,24 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
         OR: [
           { requesterId: userId },
           { professional: { userId: userId } }
-        ], 
-        messages: { some: {} }
+        ]
       },
       include: {
         requester: {
-          select: { id: true, firstName: true, lastName: true }
+          select: { 
+            id: true, 
+            firstName: true, 
+            lastName: true 
+          }
         },
         professional: {
           include: {
             user: {
-              select: { id: true, firstName: true, lastName: true }
+              select: { 
+                id: true, 
+                firstName: true, 
+                lastName: true 
+              }
             }
           }
         },
@@ -1973,44 +1980,32 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
     const grouped = new Map();
 
     conversations.forEach((conv: any) => {
-      let otherId, otherName;
+      let otherUserId, otherName;
 
       if (req.dbUser.role === 'PROFESSIONAL') {
-        otherId = conv.requesterId;
+        otherUserId = conv.requesterId || conv.requester?.id;
         otherName = conv.requester 
           ? `${conv.requester.firstName || ''} ${conv.requester.lastName || ''}`.trim() 
           : 'Cliente';
       } else {
-        otherId = conv.professional?.user?.id || conv.professionalId;
-        otherName = conv.professional?.fullName || conv.professional?.user 
-          ? `${conv.professional.user.firstName || ''} ${conv.professional.user.lastName || ''}`.trim()
-          : 'Profesional';
+        otherUserId = conv.professional?.user?.id || conv.professionalId || conv.professional?.id;
+        otherName = conv.professional?.fullName || 'Profesional';
       }
 
-      if (!otherId || otherId === userId) return; // Evitar self-chat
+      if (!otherUserId || otherUserId === userId) return;
 
       const lastMessage = conv.messages[0];
 
-      if (!grouped.has(otherId)) {
-        grouped.set(otherId, {
+      if (!grouped.has(otherUserId)) {
+        grouped.set(otherUserId, {
           id: conv.id,
-          otherId,
-          otherName,
+          otherId: otherUserId,
+          otherName: otherName,
           type: conv.type,
           lastMessage: lastMessage?.content || '',
           unreadCount: 0,
           lastUpdated: lastMessage?.createdAt || conv.requestedAt
         });
-      } else {
-        // Mantener el más reciente
-        const existing = grouped.get(otherId);
-        if (new Date(conv.requestedAt) > new Date(existing.lastUpdated)) {
-          grouped.set(otherId, {
-            ...existing,
-            lastMessage: lastMessage?.content || existing.lastMessage,
-            lastUpdated: lastMessage?.createdAt || conv.requestedAt
-          });
-        }
       }
     });
 
