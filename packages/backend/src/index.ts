@@ -1852,7 +1852,6 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
   }
 });
  
-// Obtener todas las conversaciones del usuario (chats + servicios)
 app.get('/services/my-conversations', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
 
@@ -1866,59 +1865,59 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
         messages: { some: {} }
       },
       include: {
-        requester: {
-          select: { 
-            id: true, 
-            firstName: true, 
-            lastName: true 
-            // avatar: true   ← comentado porque no existe en tu modelo
-          }
-        },
+        requester: { select: { id: true, firstName: true, lastName: true } },
         professional: {
           include: {
-            user: {
-              select: { 
-                id: true, 
-                firstName: true, 
-                lastName: true 
-                // avatar: true
-              }
-            }
+            user: { select: { id: true, firstName: true, lastName: true } }
           }
         },
         messages: {
           take: 1,
           orderBy: { createdAt: 'desc' },
-          include: {
-            sender: {
-              select: { id: true, firstName: true, lastName: true }
-            }
-          }
+          include: { sender: { select: { id: true, firstName: true, lastName: true } } }
         }
       },
       orderBy: { id: 'desc' }
     });
 
-    // === AGRUPACIÓN POR PROFESIONAL ===
     const grouped = new Map();
 
     conversations.forEach((conv: any) => {
-      // Tomamos el ID del usuario profesional (no el de la tabla Professional)
       const professionalUserId = conv.professional?.user?.id || conv.professionalId;
+      const isUserTheProfessional = professionalUserId === userId;
 
-      if (!professionalUserId) return;
+      // El "otro" participante depende de qué rol cumplís VOS en este servicio
+      const otherUserId = isUserTheProfessional ? conv.requesterId : professionalUserId;
+      const otherUser = isUserTheProfessional ? conv.requester : conv.professional?.user;
 
-      if (!grouped.has(professionalUserId)) {
-        grouped.set(professionalUserId, conv);
-      } else {
-        const existing = grouped.get(professionalUserId);
-        if (new Date(conv.id) > new Date(existing.id)) {
-          grouped.set(professionalUserId, conv);
-        }
+      if (!otherUserId || otherUserId === userId) return; // evita self-chat
+
+      const otherName = otherUser
+        ? `${otherUser.firstName || ''} ${otherUser.lastName || ''}`.trim()
+        : 'Usuario';
+
+      const lastMessage = conv.messages[0];
+      const lastMessageDate = lastMessage?.createdAt || conv.requestedAt;
+
+      const existing = grouped.get(otherUserId);
+
+      if (!existing || new Date(lastMessageDate) > new Date(existing._lastMessageDate)) {
+        grouped.set(otherUserId, {
+          id: conv.id,
+          type: conv.type,
+          status: conv.status,
+          otherUserId,
+          otherName,
+          lastMessage: lastMessage?.content || null,
+          unreadCount: 0, // TODO: calcular si tenés un campo de leído
+          _lastMessageDate: lastMessageDate,
+        });
       }
     });
 
-    const unifiedConversations = Array.from(grouped.values());
+    const unifiedConversations = Array.from(grouped.values())
+      .map(({ _lastMessageDate, ...rest }) => rest)
+      .sort((a: any, b: any) => new Date(b._lm || 0).getTime() - new Date(a._lm || 0).getTime());
 
     console.log(`📬 [CONVERSATIONS] Usuario ${userId} tiene ${unifiedConversations.length} conversaciones unificadas`);
 
