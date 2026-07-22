@@ -1869,7 +1869,7 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
         professional: {
           select: {
             id: true,
-            profession: true,          // ← agregado
+            profession: true,
             user: { select: { id: true, firstName: true, lastName: true } }
           }
         },
@@ -1897,9 +1897,6 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
         ? `${otherUser.firstName || ''} ${otherUser.lastName || ''}`.trim()
         : 'Usuario';
 
-      // Solo tiene profesión si el OTRO participante es el profesional
-      const otherProfession = !isUserTheProfessional ? conv.professional?.profession : null;
-
       const lastMessage = conv.messages[0];
       const lastMessageDate = lastMessage?.createdAt || conv.requestedAt;
 
@@ -1912,7 +1909,6 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
           status: conv.status,
           otherUserId,
           otherName,
-          otherProfession,           // ← agregado
           lastMessage: lastMessage?.content || null,
           unreadCount: 0,
           _lastMessageDate: lastMessageDate,
@@ -1920,9 +1916,29 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
       }
     });
 
-    const unifiedConversations = Array.from(grouped.values())
-      .map(({ _lastMessageDate, ...rest }) => rest)
-      .sort((a: any, b: any) => new Date(b._lastMessageDate || 0).getTime() - new Date(a._lastMessageDate || 0).getTime());
+    let unifiedConversations = Array.from(grouped.values());
+
+    // === Buscar profesión real del "otro" participante, sea cual sea su rol en el service ===
+    const otherUserIds = unifiedConversations.map((c: any) => c.otherUserId);
+
+    const professionalProfiles = await prisma.professional.findMany({
+      where: { userId: { in: otherUserIds } },
+      select: { userId: true, profession: true }
+    });
+
+    const professionByUserId = new Map(
+      professionalProfiles.map((p: any) => [p.userId, p.profession])
+    );
+
+    unifiedConversations = unifiedConversations
+      .map(({ _lastMessageDate, otherUserId, ...rest }: any) => ({
+        ...rest,
+        otherUserId,
+        otherProfession: professionByUserId.get(otherUserId) || null,
+        _lm: _lastMessageDate,
+      }))
+      .sort((a: any, b: any) => new Date(b._lm || 0).getTime() - new Date(a._lm || 0).getTime())
+      .map(({ _lm, ...rest }: any) => rest);
 
     res.json(unifiedConversations);
 
@@ -1931,7 +1947,6 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
     res.status(500).json({ error: 'Error al obtener conversaciones' });
   }
 });
- 
 
 // 📍 ACTUALIZAR UBICACIÓN DEL USUARIO - Versión estable
 app.patch('/user/location', authenticate, async (req: any, res: any) => {
