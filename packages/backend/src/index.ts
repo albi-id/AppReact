@@ -1852,6 +1852,7 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
   }
 });
 
+/*
 // Obtener todas las conversaciones del usuario (chats + servicios)
 app.get('/services/my-conversations', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
@@ -1921,6 +1922,102 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
     const unifiedConversations = Array.from(grouped.values());
 
     console.log(`📬 [CONVERSATIONS] Usuario ${userId} tiene ${unifiedConversations.length} conversaciones unificadas`);
+
+    res.json(unifiedConversations);
+
+  } catch (error) {
+    console.error('Error al obtener conversaciones:', error);
+    res.status(500).json({ error: 'Error al obtener conversaciones' });
+  }
+});
+*/
+app.get('/services/my-conversations', authenticate, async (req: any, res: any) => {
+  const userId = req.user.id;
+
+  try {
+    console.log(`📬 [MY-CONVERSATIONS] Buscando para user: ${userId} (role: ${req.dbUser.role})`);
+
+    const conversations = await prisma.service.findMany({
+      where: {
+        OR: [
+          { requesterId: userId },
+          { professional: { userId: userId } }
+        ], 
+        messages: { some: {} }
+      },
+      include: {
+        requester: {
+          select: { id: true, firstName: true, lastName: true }
+        },
+        professional: {
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true }
+            }
+          }
+        },
+        messages: {
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            sender: {
+              select: { id: true, firstName: true, lastName: true }
+            }
+          }
+        }
+      },
+      orderBy: { requestedAt: 'desc' }
+    });
+
+    // === AGRUPACIÓN POR EL OTRO PARTICIPANTE ===
+    const grouped = new Map();
+
+    conversations.forEach((conv: any) => {
+      let otherId, otherName;
+
+      if (req.dbUser.role === 'PROFESSIONAL') {
+        otherId = conv.requesterId;
+        otherName = conv.requester 
+          ? `${conv.requester.firstName || ''} ${conv.requester.lastName || ''}`.trim() 
+          : 'Cliente';
+      } else {
+        otherId = conv.professional?.user?.id || conv.professionalId;
+        otherName = conv.professional?.fullName || conv.professional?.user 
+          ? `${conv.professional.user.firstName || ''} ${conv.professional.user.lastName || ''}`.trim()
+          : 'Profesional';
+      }
+
+      if (!otherId || otherId === userId) return; // Evitar self-chat
+
+      const lastMessage = conv.messages[0];
+
+      if (!grouped.has(otherId)) {
+        grouped.set(otherId, {
+          id: conv.id,
+          otherId,
+          otherName,
+          type: conv.type,
+          lastMessage: lastMessage?.content || '',
+          unreadCount: 0,
+          lastUpdated: lastMessage?.createdAt || conv.requestedAt
+        });
+      } else {
+        // Mantener el más reciente
+        const existing = grouped.get(otherId);
+        if (new Date(conv.requestedAt) > new Date(existing.lastUpdated)) {
+          grouped.set(otherId, {
+            ...existing,
+            lastMessage: lastMessage?.content || existing.lastMessage,
+            lastUpdated: lastMessage?.createdAt || conv.requestedAt
+          });
+        }
+      }
+    });
+
+    const unifiedConversations = Array.from(grouped.values())
+      .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
+
+    console.log(`✅ [MY-CONVERSATIONS] Usuario ${userId} tiene ${unifiedConversations.length} conversaciones`);
 
     res.json(unifiedConversations);
 
