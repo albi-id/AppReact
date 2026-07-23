@@ -1797,55 +1797,55 @@ app.post('/services/create', authenticate, async (req: any, res: any) => {
 
 // Encontrar o crear chat entre usuario y profesional
 app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
-  const { professionalId } = req.body;
+  const { professionalId: otherUserId } = req.body; // esto es un USER id
   const userId = req.user.id;
 
-  console.log(`🔄 find-or-create - User: ${userId} | Professional: ${professionalId}`);
-
   try {
-    if (!professionalId) {
+    if (!otherUserId) {
       return res.status(400).json({ error: 'professionalId es requerido' });
     }
+    if (otherUserId === userId) {
+      return res.status(400).json({ error: 'No podés chatear con vos mismo' });
+    }
 
-    // Buscar servicio existente (priorizando los que no estén COMPLETED)
+    const [myProfile, otherProfile] = await Promise.all([
+      prisma.professional.findUnique({ where: { userId }, select: { id: true } }),
+      prisma.professional.findUnique({ where: { userId: otherUserId }, select: { id: true } }),
+    ]);
+
+    let requesterId: string;
+    let professionalRecordId: string;
+
+    if (otherProfile) {
+      // Caso normal: yo contacto a un profesional
+      requesterId = userId;
+      professionalRecordId = otherProfile.id;
+    } else if (myProfile) {
+      // Caso inverso: yo soy el profesional, el otro es cliente
+      requesterId = otherUserId;
+      professionalRecordId = myProfile.id;
+    } else {
+      return res.status(400).json({ error: 'Ninguno de los dos tiene perfil profesional' });
+    }
+
     let service = await prisma.service.findFirst({
-      where: {
-      OR: [
-          { requesterId: userId, professionalId: professionalId },
-          { requesterId: professionalId, professionalId: userId },
-          { requesterId: userId, professional: { userId: professionalId } },
-          { requesterId: professionalId, professional: { userId: userId } }
-        ]
-      },
-      orderBy: [
-        { status: 'asc' },      // Prioriza ACTIVE, CHAT, etc. sobre COMPLETED
-        { id: 'desc' }
-      ]
+      where: { requesterId, professionalId: professionalRecordId },
+      orderBy: [{ status: 'asc' }, { id: 'desc' }]
     });
 
     if (!service) {
-      // Crear nuevo solo si realmente no existe
       service = await prisma.service.create({
         data: {
-          requesterId: userId,
-          professionalId: professionalId,
+          requesterId,
+          professionalId: professionalRecordId, // ← Professional.id correcto, siempre
           type: 'CHAT',
           status: 'CHAT',
           requestedAt: new Date(),
         }
       });
-      console.log(`💬 Nuevo chat creado - ID: ${service.id}`);
-    } else {
-      console.log(`♻️ Servicio encontrado - ID: ${service.id} | Status: ${service.status}`);
-      
-   
     }
 
-    res.json({ 
-      serviceId: service.id,
-      status: service.status 
-    });
-
+    res.json({ serviceId: service.id, status: service.status });
   } catch (error: any) {
     console.error('❌ Error find-or-create:', error);
     res.status(500).json({ error: 'Error al inicializar chat' });
@@ -1885,40 +1885,33 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
     const grouped = new Map();
 
     conversations.forEach((conv: any) => {
-      const professionalUserId = conv.professional?.user?.id || conv.professionalId;
-      const isUserTheProfessional = professionalUserId === userId;
+  const professionalUserId = conv.professional?.user?.id;
+  if (!professionalUserId) return; // dato corrupto legacy, correr el script de abajo
 
-      const otherUserId = isUserTheProfessional ? conv.requesterId : professionalUserId;
-      const otherUser = isUserTheProfessional ? conv.requester : conv.professional?.user;
+  const isUserTheProfessional = professionalUserId === userId;
+  const otherUserId = isUserTheProfessional ? conv.requesterId : professionalUserId;
+  const otherUser = isUserTheProfessional ? conv.requester : conv.professional.user;
 
-      if (!otherUserId || otherUserId === userId) return;
+  if (!otherUserId || otherUserId === userId) return;
 
-      const otherName = otherUser
-        ? `${otherUser.firstName || ''} ${otherUser.lastName || ''}`.trim()
-        : 'Usuario';
+  const otherName = otherUser
+    ? `${otherUser.firstName || ''} ${otherUser.lastName || ''}`.trim()
+    : 'Usuario';
 
-      // Solo tiene profesión si el OTRO participante es el profesional
-      const otherProfession = !isUserTheProfessional ? conv.professional?.profession : null;
+  const lastMessage = conv.messages[0];
+  const lastMessageDate = lastMessage?.createdAt || conv.requestedAt;
 
-      const lastMessage = conv.messages[0];
-      const lastMessageDate = lastMessage?.createdAt || conv.requestedAt;
-
-      const existing = grouped.get(otherUserId);
-
-      if (!existing || new Date(lastMessageDate) > new Date(existing._lastMessageDate)) {
-        grouped.set(otherUserId, {
-          id: conv.id,
-          type: conv.type,
-          status: conv.status,
-          otherUserId,
-          otherName,
-          otherProfession,           // ← agregado
-          lastMessage: lastMessage?.content || null,
-          unreadCount: 0,
-          _lastMessageDate: lastMessageDate,
-        });
-      }
+  const existing = grouped.get(otherUserId);
+  if (!existing || new Date(lastMessageDate) > new Date(existing._lastMessageDate)) {
+    grouped.set(otherUserId, {
+      id: conv.id, type: conv.type, status: conv.status,
+      otherUserId, otherName,
+      lastMessage: lastMessage?.content || null,
+      unreadCount: 0,
+      _lastMessageDate: lastMessageDate,
     });
+  }
+});
 
     const unifiedConversations = Array.from(grouped.values())
       .map(({ _lastMessageDate, ...rest }) => rest)
@@ -2015,53 +2008,31 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
 */
 app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
-  const { professionalId } = req.params;
+  const { professionalId: otherUserId } = req.params;
 
-  console.log(`📡 [CHATS/UNIFIED] User: ${userId} | ProfessionalUserId: ${professionalId}`);
-
-     // === VALIDACIÓN SELF-CHAT ===
-    if (userId === professionalId) {
-      console.log('🚫 Self-chat detectado, devolviendo vacío');
-      return res.json({ messages: [] });
-    }
+  if (userId === otherUserId) return res.json({ messages: [] });
 
   try {
     const services = await prisma.service.findMany({
       where: {
         OR: [
-          { requesterId: userId, professional: { userId: professionalId } },
-          { requesterId: professionalId, professional: { userId: userId } },
-          { requesterId: userId, professionalId: professionalId },
-          { requesterId: professionalId, professionalId: userId }
+          { requesterId: userId, professional: { userId: otherUserId } },
+          { requesterId: otherUserId, professional: { userId } },
         ]
       },
       select: { id: true }
     });
 
     const serviceIds = services.map(s => s.id);
-
-    console.log(`🔍 Total services encontrados: ${services.length} → IDs: ${serviceIds.join(', ')}`);
-
-    if (serviceIds.length === 0) {
-      return res.json({ messages: [] });
-    }
+    if (serviceIds.length === 0) return res.json({ messages: [] });
 
     const messages = await prisma.message.findMany({
-      where: { 
-        serviceId: { in: serviceIds }
-      },
-      include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
-      },
+      where: { serviceId: { in: serviceIds } },
+      include: { sender: { select: { id: true, firstName: true, lastName: true } } },
       orderBy: { createdAt: 'asc' }
     });
 
-    console.log(`✅ Mensajes unificados finales: ${messages.length}`);
-
     res.json({ messages });
-
   } catch (error: any) {
     console.error('💥 Error unificado:', error);
     res.status(500).json({ error: 'Error al cargar historial' });
