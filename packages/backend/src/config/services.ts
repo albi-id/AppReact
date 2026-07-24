@@ -9,41 +9,49 @@ export type ServiceTypeConfig = {
 
 export const SERVICE_TYPES: ServiceTypeConfig[] = [
   {
-    key: 'CORTADOR_PASTO',
-    label: 'CORTADOR_PASTO',
-    pricePerMinute: 8,
-    basePrice: 50,
+    key: 'Supervisora c/ retiro',
+    label: 'Supervisora c/ retiro',
+    pricePerMinute: 73.9795,  // sale de hacer $ 4.438,77 / 60 = 73,9795
+    basePrice: 739.80, //basePrice * 10 osea 10 minutos minimo que se le pague 
+  },
+    
+  {
+    key: 'Personal para tareas específicas c/ retiro',
+    label: 'Personal para tareas específicas c/ retiro',
+    pricePerMinute: 70.3875,
+    basePrice: 703.88,
   },
   {
-    key: 'ASADOR',
-    label: 'ASADOR',
-    pricePerMinute: 12,
-    basePrice: 80,
-  },
-  {
-    key: 'LIMPIEZA',
-    label: 'LIMPIEZA',
-    pricePerMinute: 25,
-    basePrice: 150,
+    key: 'Cuidador/a de personas c/ retiro',
+    label: 'Cuidado de personas c/ retiro',
+    pricePerMinute: 66.6075,
+    basePrice: 666.08,
   },
 
    {
-    key: 'MUDANZA',
-     label: 'MUDANZA',
-    pricePerMinute: 15,
-    basePrice: 100,
+    key: 'Personal para tareas generales c/ retiro',
+     label: 'Personal para tareas generales c/ retiro',
+    pricePerMinute: 62.2286,
+    basePrice: 622.29,
    },
 
     {
-    key: 'INGENIERA',
-     label: 'INGENIERA',
-    pricePerMinute: 40,
-    basePrice: 400,
+    key: 'Ingeniero/a',
+     label: 'Ingeniero/a',
+    pricePerMinute: 0,
+    basePrice: 0,
    },
    
    {
-  key: 'ELECTRICISTA',           // por presupuesto por eso pongo 0
-  label: 'ELECTRICISTA',            
+  key: 'Electricista',           // por presupuesto por eso pongo 0
+  label: 'Electricista',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Jardinero/a',           // por presupuesto por eso pongo 0
+  label: 'Jardinero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,              
 },
