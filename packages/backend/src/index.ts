@@ -1166,8 +1166,7 @@ async function findNearestProfessional(
         p."lastLocation"::geography
       ) / 1000 as "distanceKm"
     FROM "professionals" p
-    WHERE p."isActive" = true 
-      AND p."isOnline" = true
+    WHERE p."isActive" = true  
       AND p.status = 'APPROVED'
       AND p.profession = $3
       AND p."cityId" = $4
