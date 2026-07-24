@@ -1152,7 +1152,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       });
     }
 
-    // ==================== VERIFICACIÓN DE SERVICIO ACTIVO ====================
+    // ==================== VERIFICACIÓN DE SERVICIO ACTIVO DEL USUARIO====================
     const activeService = await prisma.service.findFirst({
       where: { 
         requesterId: req.user.id,
@@ -1162,7 +1162,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     if (activeService) {
       return res.status(409).json({ 
-        error: 'Ya tienes un servicio activo.' 
+        error: 'Ya tienes un servicio activo. Debes finalizar o cancelar el actual antes de solicitar uno nuevo.' 
       });
     }
 
@@ -1192,7 +1192,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       console.warn(`⚠️ [SECURITY] Se intentó asignar profesionalId al crear servicio`);
     }
 
-    // ==================== MATCHING CON POSTGIS ====================
+    // ==================== MATCHING CON POSTGIS + VERIFICACIÓN DE PROFESIONAL LIBRE ====================
     const professionals = await prisma.$queryRawUnsafe<any[]>(`
       SELECT 
         p.id,
@@ -1213,6 +1213,12 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       ST_MakePoint($2, $1)::geography,
       $6
     )
+      -- Verificar que el profesional NO tenga servicios activos
+        AND NOT EXISTS (
+          SELECT 1 FROM "services" s 
+          WHERE s."professionalId" = p.id 
+            AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED')
+        )
   ORDER BY "distanceKm" ASC
   LIMIT 8;
 `, 
