@@ -117,6 +117,8 @@ model Service {
   arrivedAt DateTime?
   completedAt DateTime?
   paidAt DateTime?
+  rejectAttempts  Int      @default(0)
+  lastRejectAt    DateTime?
   requester User @relation("ServiceRequester", fields: [requesterId], references: [id])
   professional Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
   messages Message[]  
