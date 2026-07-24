@@ -528,6 +528,7 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
   }
 });
 
+/*
 // HU-09: Rechazar oferta + fallback automático (OPTIMIZADO CON GIST)
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
@@ -616,6 +617,127 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       console.log(`⚠️ [REJECT] No hay más profesionales cercanos`);
       return res.json({ 
         message: `Oferta rechazada. No hay más profesionales disponibles cerca.` 
+      });
+    }
+
+    const next = candidates[0];
+    const distanceKm = parseFloat(next.distanceKm).toFixed(2);
+
+    // Reasignar
+    await prisma.service.update({
+      where: { id: serviceId },
+      data: { 
+        professionalId: next.id, 
+        status: 'OFFERED' 
+      }
+    });
+
+    console.log(`✅ [REASSIGN] Reasignado a ${next.fullName} - ${distanceKm} km`);
+
+    res.json({
+      message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
+      nextProfessionalId: next.id,
+      nextProfessionalName: next.fullName,
+      distanceKm: distanceKm
+    });
+
+  } catch (error: any) {
+    console.error('💥 Error al rechazar servicio:', error);
+    res.status(500).json({ error: 'Error interno al rechazar el servicio' });
+  }
+});
+*/
+// HU-09: Rechazar oferta + fallback con memoria de rechazos
+app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+  const MAX_DISTANCE_METERS = 10000; // 10 km
+  const MAX_REASSIGN_ATTEMPTS = 8;
+
+  try {
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden rechazar' });
+    }
+
+    const professional = await prisma.professional.findUnique({
+      where: { userId: req.user.id }
+    });
+
+    if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        professionalId: true,
+        pickupLat: true,
+        pickupLng: true,
+        cityId: true,
+        provinceId: true,
+        rejectedBy: true   // Array de IDs que ya rechazaron
+      }
+    });
+
+    if (!service || service.professionalId !== professional.id || service.status !== 'OFFERED') {
+      return res.status(403).json({ error: 'No puedes rechazar este servicio' });
+    }
+
+    console.log(`🔄 [REJECT] Servicio ${serviceId} rechazado por ${professional.fullName}`);
+
+    // Actualizar rechazados
+    const rejectedBy = Array.isArray(service.rejectedBy) ? service.rejectedBy : [];
+    const newRejectedBy = [...rejectedBy, professional.id];
+
+    // Marcar como rechazado
+    await prisma.service.update({
+      where: { id: serviceId },
+      data: { 
+        status: 'REJECTED', 
+        professionalId: null,
+        rejectedBy: newRejectedBy
+      }
+    });
+
+    // Actualizar contador del profesional
+    await prisma.professional.update({
+      where: { id: professional.id },
+      data: {
+        rejectCount: { increment: 1 },
+        lastRejectAt: new Date(),
+      }
+    });
+
+    // ==================== BUSCAR SIGUIENTE (excluyendo rechazados) ====================
+    const candidates = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
+        p.id,
+        p."fullName",
+        p.profession,
+        ST_Distance(
+          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
+          p."lastLocation"::geography
+        ) / 1000 as "distanceKm"
+      FROM "professionals" p
+      WHERE p."isActive" = true 
+        AND p.status = 'APPROVED'
+        AND p.profession = ${service.type ? `'${service.type}'` : 'p.profession'}
+        AND p.cityId = ${service.cityId}
+        AND p.provinceId = ${service.provinceId}
+        AND p.id != ALL(${JSON.stringify(newRejectedBy)})   -- Excluir todos los que rechazaron
+        AND ST_DWithin(
+          p."lastLocation"::geography,
+          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
+          ${MAX_DISTANCE_METERS}
+        )
+      ORDER BY "distanceKm" ASC
+      LIMIT ${MAX_REASSIGN_ATTEMPTS};
+    `);
+
+    if (candidates.length === 0) {
+      console.log(`⚠️ [REJECT] No hay más profesionales disponibles después de ${newRejectedBy.length} rechazos`);
+      return res.json({ 
+        message: 'Oferta rechazada. No hay más profesionales disponibles cerca.' 
       });
     }
 
