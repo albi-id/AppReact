@@ -648,10 +648,11 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
 });
 */
 // HU-09: Rechazar oferta + fallback con memoria de rechazos
+// HU-09: Rechazar oferta + fallback + timeout
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-  const MAX_DISTANCE_METERS = 10000; // 10 km
-  const MAX_REASSIGN_ATTEMPTS = 8;
+  const MAX_DISTANCE_METERS = 15000; // 15 km
+  const MAX_REJECT_ATTEMPTS = 5;     // ← Límite de rechazos
 
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
@@ -675,7 +676,8 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
         pickupLng: true,
         cityId: true,
         provinceId: true,
-        rejectedBy: true   // Array de IDs que ya rechazaron
+        rejectAttempts: true,
+        lastRejectAt: true
       }
     });
 
@@ -685,9 +687,7 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
 
     console.log(`🔄 [REJECT] Servicio ${serviceId} rechazado por ${professional.fullName}`);
 
-    // Actualizar rechazados
-    const rejectedBy = Array.isArray(service.rejectedBy) ? service.rejectedBy : [];
-    const newRejectedBy = [...rejectedBy, professional.id];
+    const newRejectAttempts = (service.rejectAttempts || 0) + 1;
 
     // Marcar como rechazado
     await prisma.service.update({
@@ -695,7 +695,8 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       data: { 
         status: 'REJECTED', 
         professionalId: null,
-        rejectedBy: newRejectedBy
+        rejectAttempts: newRejectAttempts,
+        lastRejectAt: new Date()
       }
     });
 
@@ -708,7 +709,15 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       }
     });
 
-    // ==================== BUSCAR SIGUIENTE (excluyendo rechazados) ====================
+    // Si se superó el límite de rechazos → poner en WAITING
+    if (newRejectAttempts >= MAX_REJECT_ATTEMPTS) {
+      console.log(`⏰ [TIMEOUT] Servicio ${serviceId} alcanzó límite de rechazos`);
+      return res.json({ 
+        message: 'Oferta rechazada. Se puso en cola de espera.' 
+      });
+    }
+
+    // ==================== BUSCAR SIGUIENTE PROFESIONAL ====================
     const candidates = await prisma.$queryRawUnsafe<any[]>(`
       SELECT 
         p.id,
@@ -724,27 +733,23 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
         AND p.profession = ${service.type ? `'${service.type}'` : 'p.profession'}
         AND p.cityId = ${service.cityId}
         AND p.provinceId = ${service.provinceId}
-        AND p.id != ALL(${JSON.stringify(newRejectedBy)})   -- Excluir todos los que rechazaron
+        AND p.id != ${professional.id}
         AND ST_DWithin(
           p."lastLocation"::geography,
           ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
           ${MAX_DISTANCE_METERS}
         )
       ORDER BY "distanceKm" ASC
-      LIMIT ${MAX_REASSIGN_ATTEMPTS};
+      LIMIT 5;
     `);
 
     if (candidates.length === 0) {
-      console.log(`⚠️ [REJECT] No hay más profesionales disponibles después de ${newRejectedBy.length} rechazos`);
-      return res.json({ 
-        message: 'Oferta rechazada. No hay más profesionales disponibles cerca.' 
-      });
+      return res.json({ message: 'Oferta rechazada. No hay más profesionales cercanos.' });
     }
 
     const next = candidates[0];
     const distanceKm = parseFloat(next.distanceKm).toFixed(2);
 
-    // Reasignar
     await prisma.service.update({
       where: { id: serviceId },
       data: { 
@@ -764,7 +769,7 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
 
   } catch (error: any) {
     console.error('💥 Error al rechazar servicio:', error);
-    res.status(500).json({ error: 'Error interno al rechazar el servicio' });
+    res.status(500).json({ error: 'Error interno al rechazar' });
   }
 });
 
