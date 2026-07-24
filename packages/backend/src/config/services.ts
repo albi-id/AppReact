@@ -50,7 +50,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
 },
 
 {
-  key: 'Jardinero/a',           // por presupuesto por eso pongo 0
+  key: '👨‍🌾 Jardinero/a',           // por presupuesto por eso pongo 0
   label: 'Jardinero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,              
