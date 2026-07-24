@@ -648,11 +648,9 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
 });
 */
 // HU-09: Rechazar oferta + fallback con memoria de rechazos
-// HU-09: Rechazar oferta + fallback + timeout
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-  const MAX_DISTANCE_METERS = 15000; // 15 km
-  const MAX_REJECT_ATTEMPTS = 5;     // ← Límite de rechazos
+  const MAX_REJECT_ATTEMPTS = 5;
 
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
@@ -677,30 +675,36 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
         cityId: true,
         provinceId: true,
         rejectAttempts: true,
-        lastRejectAt: true
+        rejectedProfessionalIds: true,
       }
     });
 
     if (!service || service.professionalId !== professional.id || service.status !== 'OFFERED') {
       return res.status(403).json({ error: 'No puedes rechazar este servicio' });
     }
-
-    console.log(`🔄 [REJECT] Servicio ${serviceId} rechazado por ${professional.fullName}`);
-
+     if (
+      service.pickupLat == null ||
+      service.pickupLng == null ||
+      service.cityId == null ||
+      service.provinceId == null
+    ) {
+      return res.status(500).json({ error: 'El servicio tiene datos de ubicación incompletos' });
+    }
     const newRejectAttempts = (service.rejectAttempts || 0) + 1;
+    const updatedRejectedIds = [...(service.rejectedProfessionalIds || []), professional.id];
 
-    // Marcar como rechazado
+    // Marcar rechazo y acumular al profesional en la lista de excluidos
     await prisma.service.update({
       where: { id: serviceId },
       data: { 
         status: 'REJECTED', 
         professionalId: null,
         rejectAttempts: newRejectAttempts,
+        rejectedProfessionalIds: updatedRejectedIds,
         lastRejectAt: new Date()
       }
     });
 
-    // Actualizar contador del profesional
     await prisma.professional.update({
       where: { id: professional.id },
       data: {
@@ -709,42 +713,40 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       }
     });
 
-    // Si se superó el límite de rechazos → poner en WAITING
+    // Límite de rechazos alcanzado → a cola, igual que /request cuando no hay match
     if (newRejectAttempts >= MAX_REJECT_ATTEMPTS) {
-      console.log(`⏰ [TIMEOUT] Servicio ${serviceId} alcanzó límite de rechazos`);
+      await prisma.service.update({
+        where: { id: serviceId },
+        data: { status: 'WAITING' }
+      });
+
       return res.json({ 
-        message: 'Oferta rechazada. Se puso en cola de espera.' 
+        message: 'Oferta rechazada. Se alcanzó el límite de intentos, servicio puesto en cola.',
+        status: 'WAITING'
       });
     }
 
-    // ==================== BUSCAR SIGUIENTE PROFESIONAL ====================
-    const candidates = await prisma.$queryRawUnsafe<any[]>(`
-      SELECT 
-        p.id,
-        p."fullName",
-        p.profession,
-        ST_Distance(
-          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
-          p."lastLocation"::geography
-        ) / 1000 as "distanceKm"
-      FROM "professionals" p
-      WHERE p."isActive" = true 
-        AND p.status = 'APPROVED'
-        AND p.profession = ${service.type ? `'${service.type}'` : 'p.profession'}
-        AND p.cityId = ${service.cityId}
-        AND p.provinceId = ${service.provinceId}
-        AND p.id != ${professional.id}
-        AND ST_DWithin(
-          p."lastLocation"::geography,
-          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
-          ${MAX_DISTANCE_METERS}
-        )
-      ORDER BY "distanceKm" ASC
-      LIMIT 5;
-    `);
+    // Buscar siguiente profesional, excluyendo a todos los que ya rechazaron
+    const candidates = await findNearestProfessional(prisma, {
+      pickupLat: service.pickupLat,
+      pickupLng: service.pickupLng,
+      type: service.type,
+      cityId: service.cityId,
+      provinceId: service.provinceId,
+      excludeProfessionalIds: updatedRejectedIds,
+      limit: 5,
+    });
 
     if (candidates.length === 0) {
-      return res.json({ message: 'Oferta rechazada. No hay más profesionales cercanos.' });
+      await prisma.service.update({
+        where: { id: serviceId },
+        data: { status: 'WAITING' }
+      });
+
+      return res.json({ 
+        message: 'Oferta rechazada. No hay más profesionales cercanos, servicio puesto en cola.',
+        status: 'WAITING'
+      });
     }
 
     const next = candidates[0];
@@ -758,13 +760,11 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       }
     });
 
-    console.log(`✅ [REASSIGN] Reasignado a ${next.fullName} - ${distanceKm} km`);
-
     res.json({
       message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
       nextProfessionalId: next.id,
       nextProfessionalName: next.fullName,
-      distanceKm: distanceKm
+      distanceKm
     });
 
   } catch (error: any) {
@@ -1131,16 +1131,79 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
     res.status(500).json({ error: 'Error interno al actualizar ubicación' });
   }
 });
+
+// ==================== CONFIG DE MATCHING (compartida) ====================
+const MAX_DISTANCE_KM = 10; // criterio único de negocio para request y reject
+
+// ==================== HELPER: buscar profesional más cercano ====================
+async function findNearestProfessional(
+  prisma: PrismaClient,
+  {
+    pickupLat,
+    pickupLng,
+    type,
+    cityId,
+    provinceId,
+    excludeProfessionalIds = [] as string[],
+    limit = 5,
+  }: {
+    pickupLat: number;
+    pickupLng: number;
+    type: string;
+    cityId: string | number;
+    provinceId: string | number;
+    excludeProfessionalIds?: string[];
+    limit?: number;
+  }
+) {
+  const candidates = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT 
+      p.id,
+      p."fullName",
+      p.profession,
+      ST_Distance(
+        ST_MakePoint($2::float, $1::float)::geography,
+        p."lastLocation"::geography
+      ) / 1000 as "distanceKm"
+    FROM "professionals" p
+    WHERE p."isActive" = true 
+      AND p."isOnline" = true
+      AND p.status = 'APPROVED'
+      AND p.profession = $3
+      AND p."cityId" = $4
+      AND p."provinceId" = $5
+      AND ST_DWithin(
+        p."lastLocation"::geography,
+        ST_MakePoint($2, $1)::geography,
+        $6
+      )
+      AND NOT (p.id = ANY($7::text[]))
+      AND NOT EXISTS (
+        SELECT 1 FROM "services" s 
+        WHERE s."professionalId" = p.id 
+          AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED')
+      )
+    ORDER BY "distanceKm" ASC
+    LIMIT $8;
+    `,
+    pickupLat,
+    pickupLng,
+    type,
+    cityId,
+    provinceId,
+    MAX_DISTANCE_KM * 1000,
+    excludeProfessionalIds,
+    limit
+  );
+
+  return candidates;
+}
  
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng, pickupAddress, pickupAddressExtra, reference, floor, doorNumber, cityId, provinceId } = req.body;
-  const MAX_DISTANCE_KM = 10;   // ← Ajustable por tipo de servicio
 
-  console.log(`🚀 [REQUEST] Solicitud recibida - Type: ${type} | CityId: ${cityId} | ProvinceId: ${provinceId} | Dirección: ${pickupAddress}`);
-  console.log(`🚀 [REQUEST] Coordenadas recibidas: Lat=${pickupLat}, Lng=${pickupLng}`);
-  
   try {
     if (req.dbUser.role !== 'USER') {
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
@@ -1148,11 +1211,10 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     if (!type || !pickupLat || !pickupLng || !cityId || !provinceId || !pickupAddress?.trim()) {
       return res.status(400).json({ 
-        error: 'type, , pickupLat, pickupLat, pickupLng, cityId y provinceId son obligatorios' 
+        error: 'type, pickupLat, pickupLng, cityId y provinceId son obligatorios' 
       });
     }
 
-    // ==================== VERIFICACIÓN DE SERVICIO ACTIVO DEL USUARIO====================
     const activeService = await prisma.service.findFirst({
       where: { 
         requesterId: req.user.id,
@@ -1166,8 +1228,6 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       });
     }
 
-  
-    // Crear servicio
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
@@ -1179,112 +1239,52 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         reference: reference?.trim() || null,
         floor: floor?.trim() || null,
         doorNumber: doorNumber?.trim() || null,
-        cityId: cityId,
-        provinceId: provinceId,
+        cityId,
+        provinceId,
         status: 'REQUESTED',
         requestedAt: new Date(),
       },
     });
 
-    console.log(`✅ [REQUEST] Servicio creado - ID: ${newService.id}`);
-   
-    if (newService.professionalId) {
-      console.warn(`⚠️ [SECURITY] Se intentó asignar profesionalId al crear servicio`);
-    }
-
-    // ==================== MATCHING CON POSTGIS + VERIFICACIÓN DE PROFESIONAL LIBRE ====================
-    const professionals = await prisma.$queryRawUnsafe<any[]>(`
-      SELECT 
-        p.id,
-        p."fullName",
-        p.profession,
-        ST_Distance(
-          ST_MakePoint($2::float, $1::float)::geography,
-          p."lastLocation"::geography
-        ) / 1000 as "distanceKm"
-      FROM "professionals" p
-      WHERE p."isActive" = true 
-    AND p.status = 'APPROVED'
-    AND p.profession = $3
-    AND p."cityId" = $4
-    AND p."provinceId" = $5
-    AND ST_DWithin(
-      p."lastLocation"::geography,
-      ST_MakePoint($2, $1)::geography,
-      $6
-    )
-      -- Verificar que el profesional NO tenga servicios activos
-        AND NOT EXISTS (
-          SELECT 1 FROM "services" s 
-          WHERE s."professionalId" = p.id 
-            AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED')
-        )
-  ORDER BY "distanceKm" ASC
-  LIMIT 8;
-`, 
-  pickupLat, 
-  pickupLng, 
-  type, 
-  cityId, 
-  provinceId,
-  MAX_DISTANCE_KM * 1000   // ← Pasado como parámetro
-);
-
-
-if (!professionals?.length) {
-    // === MANEJO DE COLA ===
-    await prisma.service.update({
-        where: { id: newService.id },
-        data: { status: 'WAITING' }   // o 'QUEUED'
+    const professionals = await findNearestProfessional(prisma, {
+      pickupLat: Number(pickupLat),
+      pickupLng: Number(pickupLng),
+      type,
+      cityId,
+      provinceId,
+      excludeProfessionalIds: [],
+      limit: 8,
     });
 
-    return res.status(201).json({
+    if (!professionals?.length) {
+      await prisma.service.update({
+        where: { id: newService.id },
+        data: { status: 'WAITING' }
+      });
+
+      return res.status(201).json({
         message: 'Servicio en cola',
         serviceId: newService.id,
         status: 'WAITING',
-        warning: `No hay profesionales disponibles ahora...`
-    });
-}
-
-    if (!professionals?.length) {
-      console.log(`⚠️ No hay profesionales en ${cityId}, ${provinceId}`);
-      return res.status(201).json({
-        message: 'Servicio solicitado correctamente',
-        serviceId: newService.id,
-        status: 'REQUESTED',
-        warning: `No hay profesionales disponibles en esta zona.`
+        warning: 'No hay profesionales disponibles ahora.'
       });
     }
 
     const bestMatch = professionals[0];
 
-    // ==================== ASIGNAR PROFESIONAL ====================
-    try {
-      await prisma.service.update({
-        where: { id: newService.id },
-        data: {
-          professionalId: bestMatch.id,
-          status: 'OFFERED',
-        }
-      });
-
-      console.log(`✅ [MATCH] Asignado correctamente a ${bestMatch.fullName} (ID: ${bestMatch.id})`);
-
-      
-    } catch (updateError) {
-      console.error("❌ Error al asignar professionalId:", updateError);
-      // No devolvemos error 500, solo informamos
-    }
-
-    const distance = bestMatch.distanceKm 
-      ? parseFloat(bestMatch.distanceKm).toFixed(2) 
-      : "0.00";
+    await prisma.service.update({
+      where: { id: newService.id },
+      data: {
+        professionalId: bestMatch.id,
+        status: 'OFFERED',
+      }
+    });
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id,
       assignedTo: bestMatch.fullName,
-      distanceKm: distance,
+      distanceKm: parseFloat(bestMatch.distanceKm).toFixed(2),
       cityId,
       provinceId
     });
