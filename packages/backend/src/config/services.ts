@@ -37,7 +37,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
 
     {
     key: 'Ingeniero/a',
-     label: 'Ingeniero/a',
+    label: 'Ingeniero/a',
     pricePerMinute: 0,
     basePrice: 0,
    },
@@ -56,6 +56,126 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   pricePerMinute: 0,              
 },
 
+{
+  key: 'Enfermero/a',            
+  label: 'Enfermero/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Mecánico/a de auto',           
+  label: 'Mecánico/a de auto',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+
+{
+  key: 'Mecánico/a de moto',           
+  label: 'Mecánico/a de moto',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Gomero/a',           
+  label: 'Gomero/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Cerrajero/a',            
+  label: 'Cerrajero/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Remolques',           
+  label: 'Remolques',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Pintor/a',            
+  label: 'Pintor/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Albañil',           
+  label: 'Albañil',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Plomero/a',            
+  label: 'Plomero/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Herrero/a',            
+  label: 'Herrero/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Canaletero/a',            
+  label: 'Canaletero/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Carpintero/a',            
+  label: 'Carpintero/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Limpieza de terreno',           
+  label: 'Limpieza de terreno',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+ 
+{
+  key: 'Podólogo/a',            
+  label: 'Podólogo/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Manicura',           
+  label: 'Manicura',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Peluquería',            
+  label: 'Peluquería',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+
+{
+  key: 'Maquillador/a',             
+  label: 'Maquillador/a',            
+  basePrice: 0,                   
+  pricePerMinute: 0,              
+},
+ 
   // Agrega aquí nuevos servicios fácilmente:
   // {
   //   key: 'AMA_DE_CASA',
