@@ -34,6 +34,11 @@ enum Modality {
   FIXED_PRICE
   HIGHLIGHTED
 }
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+}
 // ==================== MODELOS =====================
 model User {
   id String @id @default(cuid())
@@ -52,6 +57,7 @@ model User {
  
   province Province? @relation(fields: [provinceId], references: [id])
   city City? @relation(fields: [cityId], references: [id])
+  reports  Report[]
   services Service[] @relation("ServiceRequester")
   professional Professional?
   sentMessages Message[] @relation("SentMessages")  
@@ -163,4 +169,16 @@ model City {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([name, provinceId])
+}
+model Report {
+  id                     String       @id @default(cuid())
+  reason                 String
+  details                String?
+  reporterId             String
+  reporter               User         @relation(fields: [reporterId], references: [id])
+  reportedProfessionalId String?
+  serviceId              String?
+  platform               String?
+  status                 ReportStatus @default(PENDING)
+  createdAt              DateTime     @default(now())
 }
