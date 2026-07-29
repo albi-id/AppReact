@@ -2306,6 +2306,32 @@ app.get('/chats/professional/:professionalId/messages', authenticate, async (req
 });
 */
 
+app.post('/reports', authenticate, async (req: any, res: any) => {
+    const { reason, details, reportedProfessionalId, serviceId, platform } = req.body;
+
+  if (!reason) {
+    return res.status(400).json({ error: 'Falta el motivo del reporte' });
+  }
+
+  try {
+    const report = await prisma.report.create({
+      data: {
+        reason,
+        details: details || null,
+        reporterId: req.user.id,
+        reportedProfessionalId: reportedProfessionalId || null,
+        serviceId: serviceId || null,
+        platform: platform || null,
+      },
+    });
+
+    res.status(201).json({ report });
+  } catch (error) {
+    console.error('Error creando reporte:', error);
+    res.status(500).json({ error: 'No se pudo crear el reporte' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
