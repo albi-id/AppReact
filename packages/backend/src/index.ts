@@ -2332,6 +2332,38 @@ app.post('/reports', authenticate, async (req: any, res: any) => {
   }
 });
 
+app.patch('/services/:id/cancel', authenticate, async (req: any, res: any) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  try {
+    const service = await prisma.service.findUnique({ where: { id } });
+
+    if (!service) {
+      return res.status(404).json({ error: 'Servicio no encontrado' });
+    }
+
+    if (service.requesterId !== userId) {
+      return res.status(403).json({ error: 'No podés cancelar este servicio' });
+    }
+
+    const cancelableStatuses = ['REQUESTED', 'OFFERED', 'ACCEPTED'];
+    if (!cancelableStatuses.includes(service.status)) {
+      return res.status(400).json({ error: 'Este servicio ya no se puede cancelar' });
+    }
+
+    const updated = await prisma.service.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    });
+
+    res.json({ service: updated });
+  } catch (error) {
+    console.error('Error cancelando servicio:', error);
+    res.status(500).json({ error: 'No se pudo cancelar el servicio' });
+  }
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
