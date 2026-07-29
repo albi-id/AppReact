@@ -39,6 +39,12 @@ enum ReportStatus {
   REVIEWED
   RESOLVED
 }
+enum PaymentStatus {
+  pending
+  approved
+  rejected
+  in_process
+}
 // ==================== MODELOS =====================
 model User {
   id String @id @default(cuid())
@@ -128,12 +134,18 @@ model Service {
   lastRejectAt    DateTime?
   requester User @relation("ServiceRequester", fields: [requesterId], references: [id])
   professional Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
-  messages Message[]  
+  messages Message[] 
+  platformFee   Float?
+  mpFeeEstimate Float?
+  totalCharged  Float?
+  mpPaymentId   String?
+  paymentStatus PaymentStatus?
   @@map("services")
   @@index([requesterId, status])
   @@index([professionalId, status])
   @@index([pickupLocation], type: Gist)   
   @@index([provinceId, cityId])
+  
 }
 model Message {
   id String @id @default(cuid())
@@ -181,4 +193,18 @@ model Report {
   platform               String?
   status                 ReportStatus @default(PENDING)
   createdAt              DateTime     @default(now())
+}
+model PaymentMethod {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+  mpCustomerId String
+  mpCardId     String
+  cardBrand    String?
+  cardLastFour String?
+  cardExpMonth Int?
+  cardExpYear  Int?
+  linkedAt     DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@map("payment_methods")
 }
