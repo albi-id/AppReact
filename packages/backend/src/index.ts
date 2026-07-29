@@ -1201,7 +1201,7 @@ async function findNearestProfessional(
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  const { type, pickupLat, pickupLng, pickupAddress, pickupAddressExtra, reference, floor, doorNumber, cityId, provinceId } = req.body;
+  const { type, pickupLat, pickupLng, pickupAddress, pickupAddressExtra, reference, floor, doorNumber, cityId, provinceId, professionalId } = req.body;
 
   try {
     if (req.dbUser.role !== 'USER') {
@@ -1227,6 +1227,31 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       });
     }
 
+        // ==================== NUEVO: solicitud directa a un profesional ====================
+    let directProfessional: { id: string; fullName: string } | null = null;
+
+    if (professionalId) {
+      const candidate = await prisma.professional.findUnique({
+        where: { id: professionalId },
+        select: { id: true, fullName: true, profession: true, isActive: true, status: true }
+      });
+
+      if (!candidate || candidate.profession !== type || candidate.status !== 'APPROVED' || !candidate.isActive) {
+        return res.status(409).json({ error: 'El profesional seleccionado ya no está disponible' });
+      }
+
+      const busy = await prisma.service.findFirst({
+        where: { professionalId: candidate.id, status: { in: ['OFFERED', 'ACCEPTED', 'ARRIVED'] } }
+      });
+
+      if (busy) {
+        return res.status(409).json({ error: 'El profesional seleccionado ya tiene un servicio en curso' });
+      }
+
+      directProfessional = candidate;
+    }
+    // ======================================================================
+
     const newService = await prisma.service.create({
       data: {
         requesterId: req.user.id,
@@ -1244,6 +1269,24 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         requestedAt: new Date(),
       },
     });
+
+    // ==================== NUEVO: asignación directa, sin matching ====================
+    if (directProfessional) {
+      await prisma.service.update({
+        where: { id: newService.id },
+        data: { professionalId: directProfessional.id, status: 'OFFERED' }
+      });
+
+      return res.status(201).json({
+        message: 'Servicio solicitado correctamente',
+        serviceId: newService.id,
+        assignedTo: directProfessional.fullName,
+        direct: true,
+        cityId,
+        provinceId
+      });
+    }
+    // ======================================================================
 
     const professionals = await findNearestProfessional(prisma, {
       pickupLat: Number(pickupLat),
