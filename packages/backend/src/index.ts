@@ -150,6 +150,32 @@ const authenticate = async (req: any, res: any, next: any) => {
   }
 };
 
+const MP_API = 'https://api.mercadopago.com';
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN as string;
+// ==================== HELPERS DE PAGOS ====================
+const PLATFORM_FEE_RATE = 0.15;
+const MP_FEE_RATE = 0.0499;      // ⚠️ ajustar según tu panel de MP > Costos
+const MP_FEE_IVA_RATE = 0.21;
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+function calculateChargeAmount(professionalAmount: number) {
+  const platformFee = round2(professionalAmount * PLATFORM_FEE_RATE);
+  const netTarget = professionalAmount + platformFee;
+  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
+  const totalToCharge = round2(netTarget / (1 - mpDeductionRate));
+  const mpFeeEstimate = round2(totalToCharge - netTarget);
+
+  return { professionalAmount, platformFee, mpFeeEstimate, totalToCharge };
+}
+
+const SUPPORTED_PAYMENT_STATUSES = ['pending', 'approved', 'rejected', 'in_process'] as const;
+function mapPaymentStatus(mpStatus: string) {
+  return (SUPPORTED_PAYMENT_STATUSES as readonly string[]).includes(mpStatus) ? mpStatus : 'pending';
+}
+
 // ==================== RUTAS CRÍTICAS ====================
 
 app.get('/health', (req, res) => res.json({ status: 'OK' }));
@@ -749,21 +775,44 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       });
     }
 
-    const next = candidates[0];
-    const distanceKm = parseFloat(next.distanceKm).toFixed(2);
-
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: { 
-        professionalId: next.id, 
-        status: 'OFFERED' 
+    // Intenta asignar en orden de cercanía; si otro proceso concurrente
+    // (otro reject, u otro /request) ya tomó a un candidato, el constraint
+    // único de la DB lo rechaza (P2002) y probamos con el siguiente.
+    let assigned: any = null;
+    for (const candidate of candidates) {
+      try {
+        await prisma.service.update({
+          where: { id: serviceId },
+          data: { professionalId: candidate.id, status: 'OFFERED' },
+        });
+        assigned = candidate;
+        break;
+      } catch (error: any) {
+        if (error.code === 'P2002') {
+          continue;
+        }
+        throw error;
       }
-    });
+    }
+
+    if (!assigned) {
+      await prisma.service.update({
+        where: { id: serviceId },
+        data: { status: 'WAITING' }
+      });
+
+      return res.json({
+        message: 'Oferta rechazada. Todos los profesionales cercanos fueron tomados por otras solicitudes, servicio puesto en cola.',
+        status: 'WAITING'
+      });
+    }
+
+    const distanceKm = parseFloat(assigned.distanceKm).toFixed(2);
 
     res.json({
       message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
-      nextProfessionalId: next.id,
-      nextProfessionalName: next.fullName,
+      nextProfessionalId: assigned.id,
+      nextProfessionalName: assigned.fullName,
       distanceKm
     });
 
@@ -1272,10 +1321,22 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
 
     // ==================== NUEVO: asignación directa, sin matching ====================
     if (directProfessional) {
-      await prisma.service.update({
-        where: { id: newService.id },
-        data: { professionalId: directProfessional.id, status: 'OFFERED' }
-      });
+      try {
+        await prisma.service.update({
+          where: { id: newService.id },
+          data: { professionalId: directProfessional.id, status: 'OFFERED' }
+        });
+      } catch (error: any) {
+        if (error.code === 'P2002') {
+          // Otro cliente lo tomó en el mismo instante
+          await prisma.service.update({
+            where: { id: newService.id },
+            data: { status: 'WAITING' }
+          });
+          return res.status(409).json({ error: 'El profesional seleccionado ya no está disponible' });
+        }
+        throw error;
+      }
 
       return res.status(201).json({
         message: 'Servicio solicitado correctamente',
@@ -1288,7 +1349,7 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     }
     // ======================================================================
 
-    const professionals = await findNearestProfessional(prisma, {
+const professionals = await findNearestProfessional(prisma, {
       pickupLat: Number(pickupLat),
       pickupLng: Number(pickupLng),
       type,
@@ -1312,21 +1373,45 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
       });
     }
 
-    const bestMatch = professionals[0];
-
-    await prisma.service.update({
-      where: { id: newService.id },
-      data: {
-        professionalId: bestMatch.id,
-        status: 'OFFERED',
+    // Intenta asignar en orden de cercanía; si otro request concurrente
+    // ya tomó a un candidato, el constraint único de la DB lo rechaza (P2002)
+    // y probamos con el siguiente sin romper el flujo.
+    let assigned: any = null;
+    for (const candidate of professionals) {
+      try {
+        await prisma.service.update({
+          where: { id: newService.id },
+          data: { professionalId: candidate.id, status: 'OFFERED' },
+        });
+        assigned = candidate;
+        break;
+      } catch (error: any) {
+        if (error.code === 'P2002') {
+          continue;
+        }
+        throw error;
       }
-    });
+    }
+
+    if (!assigned) {
+      await prisma.service.update({
+        where: { id: newService.id },
+        data: { status: 'WAITING' }
+      });
+
+      return res.status(201).json({
+        message: 'Servicio en cola',
+        serviceId: newService.id,
+        status: 'WAITING',
+        warning: 'Todos los profesionales disponibles fueron tomados por otras solicitudes.'
+      });
+    }
 
     res.status(201).json({
       message: 'Servicio solicitado correctamente',
       serviceId: newService.id,
-      assignedTo: bestMatch.fullName,
-      distanceKm: parseFloat(bestMatch.distanceKm).toFixed(2),
+      assignedTo: assigned.fullName,
+      distanceKm: parseFloat(assigned.distanceKm).toFixed(2),
       cityId,
       provinceId
     });
@@ -2361,6 +2446,147 @@ app.patch('/services/:id/cancel', authenticate, async (req: any, res: any) => {
   } catch (error) {
     console.error('Error cancelando servicio:', error);
     res.status(500).json({ error: 'No se pudo cancelar el servicio' });
+  }
+});
+
+
+//para pagos
+app.post('/payments/link', authenticate, async (req, res) => {
+  const { cardToken } = req.body;
+  const userId = (req as any).user.id;
+
+  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+
+  try {
+    let existing = await prisma.paymentMethod.findUnique({ where: { userId } });
+    let mpCustomerId = existing?.mpCustomerId;
+
+    if (!mpCustomerId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const customerRes = await axios.post(`${MP_API}/v1/customers`, {
+    email: user!.email,
+    first_name: user!.firstName,
+    last_name: user!.lastName,
+  }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
+  mpCustomerId = customerRes.data.id;
+}
+
+if (!mpCustomerId) {
+  throw new Error('No se pudo crear el customer de Mercado Pago');
+}
+
+    if (existing?.mpCardId) {
+      await axios.delete(`${MP_API}/v1/customers/${mpCustomerId}/cards/${existing.mpCardId}`,
+        { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }).catch(() => {});
+    }
+
+    const cardRes = await axios.post(`${MP_API}/v1/customers/${mpCustomerId}/cards`,
+      { token: cardToken }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
+    const card = cardRes.data;
+
+    const paymentMethod = await prisma.paymentMethod.upsert({
+      where: { userId },
+      update: {
+        mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
+        cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
+        cardExpYear: card.expiration_year, linkedAt: new Date(),
+      },
+      create: {
+        userId, mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
+        cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
+        cardExpYear: card.expiration_year,
+      },
+    });
+
+    res.json({ linked: true, cardLastFour: paymentMethod.cardLastFour, cardBrand: paymentMethod.cardBrand });
+  } catch (error: any) {
+    console.error('Error vinculando MP:', error.response?.data || error.message);
+    res.status(400).json({ error: 'No se pudo vincular la tarjeta. Verificá los datos e intentá de nuevo.' });
+  }
+});
+
+app.get('/payments/status', authenticate, async (req, res) => {
+  const userId = (req as any).user.id;
+  const pm = await prisma.paymentMethod.findUnique({ where: { userId } });
+  res.json(pm ? { linked: true, cardBrand: pm.cardBrand, cardLastFour: pm.cardLastFour } : { linked: false });
+});
+
+app.delete('/payments/unlink', authenticate, async (req, res) => {
+  const userId = (req as any).user.id;
+  const pm = await prisma.paymentMethod.findUnique({ where: { userId } });
+  if (!pm) return res.json({ unlinked: true });
+
+  const pending = await prisma.service.findFirst({
+    where: { requesterId: userId, status: 'COMPLETED', paidAt: null },
+  });
+  if (pending) return res.status(400).json({ error: 'Tenés un pago pendiente. Regularizalo antes de desvincular.' });
+
+  await axios.delete(`${MP_API}/v1/customers/${pm.mpCustomerId}/cards/${pm.mpCardId}`,
+    { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }).catch(() => {});
+  await prisma.paymentMethod.delete({ where: { userId } });
+  res.json({ unlinked: true });
+});
+
+app.post('/services/:id/charge', authenticate, async (req, res) => {
+  const { token } = req.body;
+  const userId = (req as any).user.id;
+  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+
+  if (!service || service.requesterId !== userId) return res.status(404).json({ error: 'No encontrado' });
+  if (service.status !== 'COMPLETED' || !service.amount) return res.status(400).json({ error: 'Todavía no hay monto a cobrar' });
+  if (service.paidAt) return res.status(400).json({ error: 'Ya fue pagado' });
+
+  const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
+
+  try {
+    const paymentRes = await axios.post(`${MP_API}/v1/payments`, {
+      transaction_amount: totalToCharge,
+      token,
+      installments: 1,
+      description: `Servicio Neos #${service.id}`,
+      external_reference: service.id,
+      payer: { email: (req as any).user.email },
+      notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
+    }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}`, 'X-Idempotency-Key': `charge-${service.id}` } });
+
+    const payment = paymentRes.data;
+    const status = mapPaymentStatus(payment.status);
+
+    await prisma.service.update({
+      where: { id: service.id },
+      data: {
+        mpPaymentId: String(payment.id), paymentStatus: status as any,
+        platformFee, mpFeeEstimate, totalCharged: totalToCharge,
+        paidAt: status === 'approved' ? new Date() : null,
+      },
+    });
+
+    if (status === 'approved') return res.json({ approved: true });
+    return res.status(402).json({ approved: false, detail: payment.status_detail });
+  } catch (error: any) {
+    console.error('Error cobrando:', error.response?.data || error.message);
+    res.status(400).json({ error: 'No se pudo procesar el pago' });
+  }
+});
+
+app.post('/webhooks/mercadopago', async (req, res) => {
+  try {
+    const paymentId = (req.query['data.id'] as string) || req.body?.data?.id;
+    if (!paymentId) return res.sendStatus(200);
+
+    const { data: payment } = await axios.get(`${MP_API}/v1/payments/${paymentId}`,
+      { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
+
+    if (payment.external_reference) {
+      const status = mapPaymentStatus(payment.status);
+      await prisma.service.update({
+        where: { id: payment.external_reference },
+        data: { mpPaymentId: String(payment.id), paymentStatus: status as any, paidAt: status === 'approved' ? new Date() : null },
+      });
+    }
+    res.sendStatus(200);
+  } catch {
+    res.sendStatus(200);
   }
 });
 
