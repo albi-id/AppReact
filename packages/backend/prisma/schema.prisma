@@ -60,7 +60,8 @@ model User {
   updatedAt DateTime @updatedAt
   provinceId String?
   cityId String?
- 
+  paymentMethod PaymentMethod?
+
   province Province? @relation(fields: [provinceId], references: [id])
   city City? @relation(fields: [cityId], references: [id])
   reports  Report[]
