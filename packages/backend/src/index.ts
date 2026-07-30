@@ -1301,23 +1301,33 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     }
     // ======================================================================
 
-    const newService = await prisma.service.create({
-      data: {
-        requesterId: req.user.id,
-        type: type as any,
-        pickupLat: Number(pickupLat),
-        pickupLng: Number(pickupLng),
-        pickupAddress: pickupAddress.trim(),
-        pickupAddressExtra: pickupAddressExtra?.trim() || null,
-        reference: reference?.trim() || null,
-        floor: floor?.trim() || null,
-        doorNumber: doorNumber?.trim() || null,
-        cityId,
-        provinceId,
-        status: 'REQUESTED',
-        requestedAt: new Date(),
-      },
-    });
+let newService;
+    try {
+      newService = await prisma.service.create({
+        data: {
+          requesterId: req.user.id,
+          type: type as any,
+          pickupLat: Number(pickupLat),
+          pickupLng: Number(pickupLng),
+          pickupAddress: pickupAddress.trim(),
+          pickupAddressExtra: pickupAddressExtra?.trim() || null,
+          reference: reference?.trim() || null,
+          floor: floor?.trim() || null,
+          doorNumber: doorNumber?.trim() || null,
+          cityId,
+          provinceId,
+          status: 'REQUESTED',
+          requestedAt: new Date(),
+        },
+      });
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        return res.status(409).json({
+          error: 'Ya tienes un servicio activo. Debes finalizar o cancelar el actual antes de solicitar uno nuevo.'
+        });
+      }
+      throw error;
+    }
 
     // ==================== NUEVO: asignación directa, sin matching ====================
     if (directProfessional) {
