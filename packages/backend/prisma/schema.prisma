@@ -133,6 +133,8 @@ model Service {
   rejectAttempts  Int      @default(0)
   rejectedProfessionalIds String[] @default([]) 
   lastRejectAt    DateTime?
+  proposedAmount   Float?
+  amountProposedAt DateTime?
   requester User @relation("ServiceRequester", fields: [requesterId], references: [id])
   professional Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
   messages Message[] 
