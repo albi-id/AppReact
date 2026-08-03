@@ -7,6 +7,8 @@ import cors from 'cors';
 import axios from 'axios';
 import { SERVICE_TYPES, getServiceConfig } from './config/services';  
 import rateLimit from 'express-rate-limit';
+import path from 'path';
+
  
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -17,6 +19,41 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
+async function ensureValidProfessionalToken(professionalId: string): Promise<string> {
+  const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
+  if (!professional?.mpAccessToken || !professional.mpRefreshToken) {
+    throw new Error('professional_not_linked');
+  }
+
+  const expiresInMs = professional.mpTokenExpiresAt
+    ? professional.mpTokenExpiresAt.getTime() - Date.now()
+    : 0;
+
+  // Refrescamos si falta menos de un día para que venza
+  if (expiresInMs > 24 * 60 * 60 * 1000) {
+    return professional.mpAccessToken;
+  }
+
+  const refreshRes = await axios.post(`${MP_API}/oauth/token`, {
+    client_id: process.env.MP_CLIENT_ID,
+    client_secret: process.env.MP_CLIENT_SECRET,
+    grant_type: 'refresh_token',
+    refresh_token: professional.mpRefreshToken,
+  });
+
+  const { access_token, refresh_token, expires_in } = refreshRes.data;
+
+  await prisma.professional.update({
+    where: { id: professionalId },
+    data: {
+      mpAccessToken: access_token,
+      mpRefreshToken: refresh_token,
+      mpTokenExpiresAt: new Date(Date.now() + expires_in * 1000),
+    },
+  });
+
+  return access_token;
+}
 
 const app = express();
  
@@ -35,6 +72,8 @@ app.use((req, res, next) => {
   next();
 });
 
+//para mercado pago
+app.use(express.static(path.join(__dirname, '..', 'public')));
 /*
 // ==================== RATE LIMITING ====================
 const limiter = rateLimit({
@@ -169,6 +208,95 @@ function calculateChargeAmount(professionalAmount: number) {
   const mpFeeEstimate = round2(totalToCharge - netTarget);
 
   return { professionalAmount, platformFee, mpFeeEstimate, totalToCharge };
+}
+
+async function chargeServiceAutomatically(serviceId: string) {
+  const service = await prisma.service.findUnique({ where: { id: serviceId } });
+
+  if (!service || !service.amount || service.paidAt) {
+    return { success: false, reason: 'not_chargeable' as const };
+  }
+
+const paymentMethod = await prisma.paymentMethod.findUnique({
+    where: { userId: service.requesterId },
+  });
+
+  if (!paymentMethod) {
+    return { success: false, reason: 'no_payment_method' as const };
+  }
+
+  if (!service.professionalId) {
+    return { success: false, reason: 'no_professional' as const };
+  }
+
+  let professionalAccessToken: string;
+  try {
+    professionalAccessToken = await ensureValidProfessionalToken(service.professionalId);
+  } catch {
+    return { success: false, reason: 'professional_not_linked' as const };
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: service.requesterId } });
+  const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
+
+  try {
+    // Token de un solo uso, generado server-to-server a partir de la tarjeta guardada
+    const tokenRes = await axios.post(
+      `${MP_API}/v1/card_tokens`,
+      { card_id: paymentMethod.mpCardId },
+      { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }
+    );
+    const freshToken = tokenRes.data.id;
+
+    const paymentRes = await axios.post(
+      `${MP_API}/v1/payments`,
+      {
+        transaction_amount: totalToCharge,
+        token: freshToken,
+        installments: 1,
+        payment_method_id: paymentMethod.cardPaymentMethodId,
+        description: `Servicio Neos #${service.id}`,
+        external_reference: service.id,
+        application_fee: platformFee,
+        payer: {
+          type: 'customer',
+          id: paymentMethod.mpCustomerId,
+          email: user!.email,
+        },
+        notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${professionalAccessToken}`,
+          'X-Idempotency-Key': `charge-${service.id}`,
+        },
+      }
+    );
+
+    const payment = paymentRes.data;
+    const status = mapPaymentStatus(payment.status);
+
+    await prisma.service.update({
+      where: { id: service.id },
+      data: {
+        mpPaymentId: String(payment.id),
+        paymentStatus: status as any,
+        platformFee,
+        mpFeeEstimate,
+        totalCharged: totalToCharge,
+        paidAt: status === 'approved' ? new Date() : null,
+      },
+    });
+
+    return {
+      success: status === 'approved',
+      status: payment.status,
+      statusDetail: payment.status_detail,
+    };
+  } catch (error: any) {
+    console.error(`💥 Error cobrando automáticamente servicio ${serviceId}:`, error.response?.data || error.message);
+    return { success: false, reason: 'mp_error' as const };
+  }
 }
 
 const SUPPORTED_PAYMENT_STATUSES = ['pending', 'approved', 'rejected', 'in_process'] as const;
@@ -949,20 +1077,35 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
     }
 
     const updated = await prisma.service.update({
+
       where: { id: serviceId },
+
       data: { 
+
         status: 'COMPLETED',
+
         completedAt: new Date(),
+
         amount
       }
     });
 
     console.log(`✅ [FINISH] Servicio por tiempo #${serviceId} finalizado | Importe: $${amount}`);
 
+    const chargeResult = await chargeServiceAutomatically(serviceId);
+
+    if (!chargeResult.success) {
+      console.log(`⚠️ [FINISH] Cobro automático no completado para ${serviceId}: ${chargeResult.reason || chargeResult.statusDetail}`);
+    }
+
     res.json({ 
+
       message: 'Servicio finalizado correctamente', 
+
       service: updated,
-      importe: amount 
+
+      importe: amount,
+      charged: chargeResult.success,
     });
 
   } catch (error: any) {
@@ -1677,52 +1820,104 @@ app.patch('/professionals/:id/status', authenticate, async (req: any, res: any) 
 });
 
 // HU-25: Finalizar servicio por presupuesto (usuario ingresa monto)
-app.patch('/services/:serviceId/finish-fixed', authenticate, async (req: any, res: any) => {
+// El PROFESIONAL propone el monto acordado
+app.patch('/services/:serviceId/propose-amount', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
   const { amount } = req.body;
 
   try {
-    if (req.dbUser.role !== 'USER') {                    // ← Esta línea es crítica
-      return res.status(403).json({ error: 'Solo el solicitante puede ingresar el monto' });
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo el profesional puede proponer el monto' });
     }
 
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      include: { professional: true, requester: true }
-    });
+    const professional = await prisma.professional.findUnique({ where: { userId: req.user.id } });
+    if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
 
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
     if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
-
-    if (service.requesterId !== req.user.id) {
-      return res.status(403).json({ error: 'No puedes modificar este servicio' });
+    if (service.professionalId !== professional.id) {
+      return res.status(403).json({ error: 'Este servicio no te fue asignado' });
     }
-
-    if (service.status !== 'COMPLETED') {               // ← Cambiado a COMPLETED
-      return res.status(403).json({ error: 'El servicio debe estar en estado COMPLETED' });
+    if (service.status !== 'COMPLETED' || service.amount) {
+      return res.status(400).json({ error: 'Este servicio no está esperando un monto' });
     }
-
     if (!amount || Number(amount) <= 0) {
       return res.status(400).json({ error: 'Monto inválido' });
     }
 
     const updated = await prisma.service.update({
       where: { id: serviceId },
-      data: { 
-        amount: Number(amount),
-        // status ya está en COMPLETED
-      }
+      data: { proposedAmount: Number(amount), amountProposedAt: new Date() },
     });
 
-    console.log(`💰 [FINISH-FIXED] Monto ingresado: $${amount} para servicio ${serviceId}`);
+    res.json({ message: 'Monto propuesto al cliente', service: updated });
+  } catch (error: any) {
+    console.error('💥 Error proponiendo monto:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// El CLIENTE confirma el monto propuesto → dispara el cobro
+app.patch('/services/:serviceId/confirm-amount', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Solo el solicitante puede confirmar el monto' });
+    }
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+    if (service.requesterId !== req.user.id) {
+      return res.status(403).json({ error: 'No puedes modificar este servicio' });
+    }
+    if (!service.proposedAmount) {
+      return res.status(400).json({ error: 'No hay ningún monto propuesto para confirmar' });
+    }
+
+    const updated = await prisma.service.update({
+      where: { id: serviceId },
+      data: { amount: service.proposedAmount },
+    });
+
+    const chargeResult = await chargeServiceAutomatically(serviceId);
 
     res.json({
-      message: 'Monto registrado correctamente',
+      message: 'Monto confirmado',
       service: updated,
-      importe: Number(amount)
+      importe: updated.amount,
+      charged: chargeResult.success,
+      chargeReason: chargeResult.success ? null : (chargeResult.reason || chargeResult.statusDetail),
+    });
+  } catch (error: any) {
+    console.error('💥 Error confirmando monto:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// El CLIENTE rechaza el monto propuesto → vuelve a esperar una nueva propuesta
+app.patch('/services/:serviceId/reject-amount', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+
+  try {
+    if (req.dbUser.role !== 'USER') {
+      return res.status(403).json({ error: 'Solo el solicitante puede rechazar el monto' });
+    }
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+    if (service.requesterId !== req.user.id) {
+      return res.status(403).json({ error: 'No puedes modificar este servicio' });
+    }
+
+    await prisma.service.update({
+      where: { id: serviceId },
+      data: { proposedAmount: null, amountProposedAt: null },
     });
 
+    res.json({ message: 'Monto rechazado. Podés acordar un nuevo monto por chat.' });
   } catch (error: any) {
-    console.error('💥 [FINISH-FIXED] Error:', error);
+    console.error('💥 Error rechazando monto:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -2498,11 +2693,13 @@ if (!mpCustomerId) {
       where: { userId },
       update: {
         mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
+        cardPaymentMethodId: card.payment_method?.id,
         cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
         cardExpYear: card.expiration_year, linkedAt: new Date(),
       },
       create: {
         userId, mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
+        cardPaymentMethodId: card.payment_method?.id,
         cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
         cardExpYear: card.expiration_year,
       },
@@ -2537,50 +2734,74 @@ app.delete('/payments/unlink', authenticate, async (req, res) => {
   res.json({ unlinked: true });
 });
 
-app.post('/services/:id/charge', authenticate, async (req, res) => {
-  const { token } = req.body;
-  const userId = (req as any).user.id;
+app.post('/services/:id/charge', authenticate, async (req: any, res: any) => {
+  const userId = req.user.id;
   const service = await prisma.service.findUnique({ where: { id: req.params.id } });
 
-  if (!service || service.requesterId !== userId) return res.status(404).json({ error: 'No encontrado' });
-  if (service.status !== 'COMPLETED' || !service.amount) return res.status(400).json({ error: 'Todavía no hay monto a cobrar' });
-  if (service.paidAt) return res.status(400).json({ error: 'Ya fue pagado' });
+  if (!service || service.requesterId !== userId) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+  if (service.status !== 'COMPLETED' || !service.amount) {
+    return res.status(400).json({ error: 'Todavía no hay monto a cobrar' });
+  }
+  if (service.paidAt) {
+    return res.status(400).json({ error: 'Ya fue pagado' });
+  }
 
-  const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
+  const result = await chargeServiceAutomatically(req.params.id);
+
+  if (result.success) {
+    return res.json({ approved: true });
+  }
+
+  if (result.reason === 'no_payment_method') {
+    return res.status(400).json({ error: 'No tenés un método de pago vinculado' });
+  }
+
+  return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
+});
+
+import crypto from 'crypto';
+
+function validateWebhookSignature(req: any): boolean {
+  const xSignature = req.headers['x-signature'] as string;
+  const xRequestId = req.headers['x-request-id'] as string;
+  const dataId = ((req.query['data.id'] as string) || '').toLowerCase();
+  const secret = process.env.MP_WEBHOOK_SECRET as string;
+
+  if (!xSignature || !secret) return false;
+
+  let ts: string | undefined;
+  let hash: string | undefined;
+  for (const part of xSignature.split(',')) {
+    const [key, val] = part.split('=');
+    if (key?.trim() === 'ts') ts = val?.trim();
+    if (key?.trim() === 'v1') hash = val?.trim();
+  }
+  if (!ts || !hash) return false;
+
+  const parts: string[] = [];
+  if (dataId) parts.push(`id:${dataId}`);
+  if (xRequestId) parts.push(`request-id:${xRequestId}`);
+  parts.push(`ts:${ts}`);
+  const manifest = parts.join(';') + ';';
+
+  const computed = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
 
   try {
-    const paymentRes = await axios.post(`${MP_API}/v1/payments`, {
-      transaction_amount: totalToCharge,
-      token,
-      installments: 1,
-      description: `Servicio Neos #${service.id}`,
-      external_reference: service.id,
-      payer: { email: (req as any).user.email },
-      notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
-    }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}`, 'X-Idempotency-Key': `charge-${service.id}` } });
-
-    const payment = paymentRes.data;
-    const status = mapPaymentStatus(payment.status);
-
-    await prisma.service.update({
-      where: { id: service.id },
-      data: {
-        mpPaymentId: String(payment.id), paymentStatus: status as any,
-        platformFee, mpFeeEstimate, totalCharged: totalToCharge,
-        paidAt: status === 'approved' ? new Date() : null,
-      },
-    });
-
-    if (status === 'approved') return res.json({ approved: true });
-    return res.status(402).json({ approved: false, detail: payment.status_detail });
-  } catch (error: any) {
-    console.error('Error cobrando:', error.response?.data || error.message);
-    res.status(400).json({ error: 'No se pudo procesar el pago' });
+    return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+  } catch {
+    return false;
   }
-});
+}
 
 app.post('/webhooks/mercadopago', async (req, res) => {
   try {
+    if (!validateWebhookSignature(req)) {
+      console.warn('⚠️ Webhook con firma inválida, ignorado');
+      return res.sendStatus(401);
+    }
+
     const paymentId = (req.query['data.id'] as string) || req.body?.data?.id;
     if (!paymentId) return res.sendStatus(200);
 
@@ -2597,6 +2818,69 @@ app.post('/webhooks/mercadopago', async (req, res) => {
     res.sendStatus(200);
   } catch {
     res.sendStatus(200);
+  }
+});
+ 
+
+// Genera el link que el profesional debe abrir para autorizar su cuenta
+app.get('/professionals/mercadopago/auth-url', authenticate, async (req: any, res: any) => {
+  if (req.dbUser.role !== 'PROFESSIONAL') {
+    return res.status(403).json({ error: 'Solo profesionales pueden vincular su cuenta' });
+  }
+
+  const professional = await prisma.professional.findUnique({ where: { userId: req.user.id } });
+  if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
+
+  const params = new URLSearchParams({
+    client_id: process.env.MP_CLIENT_ID as string,
+    response_type: 'code',
+    platform_id: 'mp',
+    redirect_uri: process.env.MP_OAUTH_REDIRECT_URI as string,
+    state: professional.id, // usamos esto para saber a quién pertenece cuando vuelva el callback
+  });
+
+  res.json({ url: `https://auth.mercadopago.com.ar/authorization?${params.toString()}` });
+});
+
+// Mercado Pago redirige acá después de que el profesional autoriza
+app.get('/professionals/mercadopago/callback', async (req: any, res: any) => {
+  const { code, state: professionalId } = req.query;
+
+  if (!code || !professionalId) {
+    return res.status(400).send('Faltan parámetros de autorización');
+  }
+
+  try {
+    const tokenRes = await axios.post(`${MP_API}/oauth/token`, {
+      client_id: process.env.MP_CLIENT_ID,
+      client_secret: process.env.MP_CLIENT_SECRET,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: process.env.MP_OAUTH_REDIRECT_URI,
+    });
+
+    const { access_token, refresh_token, user_id, expires_in } = tokenRes.data;
+
+    await prisma.professional.update({
+      where: { id: professionalId as string },
+      data: {
+        mpUserId: String(user_id),
+        mpAccessToken: access_token,
+        mpRefreshToken: refresh_token,
+        mpTokenExpiresAt: new Date(Date.now() + expires_in * 1000),
+      },
+    });
+
+    // Página simple de confirmación — el profesional está en un WebView/browser en este punto
+    res.send(`
+      <html><body style="background:#000;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px;">
+        <h2>✅ Cuenta vinculada correctamente</h2>
+        <p>Ya podés volver a la app.</p>
+      </body></html>
+    `);
+  } catch (error: any) {
+    console.error('💥 Error en callback OAuth MP:', error.response?.data || error.message);
+    res.status(500).send('Error al vincular la cuenta. Volvé a intentarlo desde la app.');
   }
 });
 
