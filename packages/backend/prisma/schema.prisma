@@ -96,6 +96,10 @@ model Professional {
   lastRejectAt    DateTime?
   provinceId String?  
   cityId String?  
+  mpUserId         String?
+  mpAccessToken    String?
+  mpRefreshToken   String?
+  mpTokenExpiresAt DateTime?
   province Province? @relation(fields: [provinceId], references: [id])  
   city City? @relation(fields: [cityId], references: [id])  
   // Relación con servicios donde este profesional es quien presta el servicio
@@ -198,16 +202,18 @@ model Report {
   createdAt              DateTime     @default(now())
 }
 model PaymentMethod {
-  id           String   @id @default(cuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id])
-  mpCustomerId String
-  mpCardId     String
-  cardBrand    String?
-  cardLastFour String?
-  cardExpMonth Int?
-  cardExpYear  Int?
-  linkedAt     DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id])
+  mpCustomerId        String
+  mpCardId            String
+  cardBrand           String?
+  cardLastFour        String?
+  cardExpMonth        Int?
+  cardExpYear         Int?
+  cardPaymentMethodId String?  // ej: "visa", "master"
+  linkedAt            DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
   @@map("payment_methods")
 }
