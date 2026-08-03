@@ -217,10 +217,9 @@ async function chargeServiceAutomatically(serviceId: string) {
     return { success: false, reason: 'not_chargeable' as const };
   }
 
-const paymentMethod = await prisma.paymentMethod.findUnique({
+  const paymentMethod = await prisma.paymentMethod.findUnique({
     where: { userId: service.requesterId },
   });
-
   if (!paymentMethod) {
     return { success: false, reason: 'no_payment_method' as const };
   }
@@ -240,7 +239,6 @@ const paymentMethod = await prisma.paymentMethod.findUnique({
   const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
 
   try {
-    // Token de un solo uso, generado server-to-server a partir de la tarjeta guardada
     const tokenRes = await axios.post(
       `${MP_API}/v1/card_tokens`,
       { card_id: paymentMethod.mpCardId },
@@ -248,22 +246,29 @@ const paymentMethod = await prisma.paymentMethod.findUnique({
     );
     const freshToken = tokenRes.data.id;
 
-    const paymentRes = await axios.post(
-      `${MP_API}/v1/payments`,
+    const orderRes = await axios.post(
+      `${MP_API}/v1/orders`,
       {
-        transaction_amount: totalToCharge,
-        token: freshToken,
-        installments: 1,
-        payment_method_id: paymentMethod.cardPaymentMethodId,
-        description: `Servicio Neos #${service.id}`,
+        type: 'online',
+        processing_mode: 'automatic',
         external_reference: service.id,
-        application_fee: platformFee,
+        transactions: {
+          payments: [
+            {
+              amount: String(totalToCharge),
+              payment_method: {
+                id: paymentMethod.cardPaymentMethodId,
+                type: 'credit_card',
+                token: freshToken,
+                installments: 1,
+              },
+            },
+          ],
+        },
         payer: {
-          type: 'customer',
-          id: paymentMethod.mpCustomerId,
           email: user!.email,
         },
-        notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
+        // ⚠️ Acá falta el split/comisión — ver aclaración abajo
       },
       {
         headers: {
@@ -273,13 +278,14 @@ const paymentMethod = await prisma.paymentMethod.findUnique({
       }
     );
 
-    const payment = paymentRes.data;
-    const status = mapPaymentStatus(payment.status);
+    const order = orderRes.data;
+    const payment = order.transactions?.payments?.[0];
+    const status = mapPaymentStatus(payment?.status);
 
     await prisma.service.update({
       where: { id: service.id },
       data: {
-        mpPaymentId: String(payment.id),
+        mpPaymentId: payment ? String(payment.id) : null,
         paymentStatus: status as any,
         platformFee,
         mpFeeEstimate,
@@ -290,11 +296,11 @@ const paymentMethod = await prisma.paymentMethod.findUnique({
 
     return {
       success: status === 'approved',
-      status: payment.status,
-      statusDetail: payment.status_detail,
+      status: payment?.status,
+      statusDetail: payment?.status_detail,
     };
   } catch (error: any) {
-    console.error(`💥 Error cobrando automáticamente servicio ${serviceId}:`, error.response?.data || error.message);
+    console.error(`💥 Error cobrando (Orders) servicio ${serviceId}:`, error.response?.data || error.message);
     return { success: false, reason: 'mp_error' as const };
   }
 }
@@ -2802,16 +2808,18 @@ app.post('/webhooks/mercadopago', async (req, res) => {
       return res.sendStatus(401);
     }
 
-    const paymentId = (req.query['data.id'] as string) || req.body?.data?.id;
-    if (!paymentId) return res.sendStatus(200);
+   const orderId = (req.query['data.id'] as string) || req.body?.data?.id;
+    if (!orderId) return res.sendStatus(200);
 
-    const { data: payment } = await axios.get(`${MP_API}/v1/payments/${paymentId}`,
+    const { data: order } = await axios.get(`${MP_API}/v1/orders/${orderId}`,
       { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
 
-    if (payment.external_reference) {
+    const payment = order.transactions?.payments?.[0];
+
+    if (order.external_reference && payment) {
       const status = mapPaymentStatus(payment.status);
       await prisma.service.update({
-        where: { id: payment.external_reference },
+        where: { id: order.external_reference },
         data: { mpPaymentId: String(payment.id), paymentStatus: status as any, paidAt: status === 'approved' ? new Date() : null },
       });
     }
@@ -2883,6 +2891,8 @@ app.get('/professionals/mercadopago/callback', async (req: any, res: any) => {
     res.status(500).send('Error al vincular la cuenta. Volvé a intentarlo desde la app.');
   }
 });
+
+
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
