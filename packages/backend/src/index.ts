@@ -2847,7 +2847,7 @@ app.get('/professionals/mercadopago/auth-url', authenticate, async (req: any, re
     state: professional.id, // usamos esto para saber a quién pertenece cuando vuelva el callback
   });
 
-  res.json({ url: `https://auth.mercadopago.com.ar/authorization?${params.toString()}` });
+  res.json({ url: `https://auth.mercadopago.com/authorization?${params.toString()}` });
 });
 
 // Mercado Pago redirige acá después de que el profesional autoriza
