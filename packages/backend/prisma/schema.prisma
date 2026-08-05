@@ -100,6 +100,7 @@ model Professional {
   mpAccessToken    String?
   mpRefreshToken   String?
   mpTokenExpiresAt DateTime?
+  mpPkceVerifier String?
   province Province? @relation(fields: [provinceId], references: [id])  
   city City? @relation(fields: [cityId], references: [id])  
   // Relación con servicios donde este profesional es quien presta el servicio
