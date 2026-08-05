@@ -8,7 +8,7 @@ import axios from 'axios';
 import { SERVICE_TYPES, getServiceConfig } from './config/services';  
 import rateLimit from 'express-rate-limit';
 import path from 'path';
-
+import crypto from 'crypto';
  
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -2767,7 +2767,7 @@ app.post('/services/:id/charge', authenticate, async (req: any, res: any) => {
   return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
 });
 
-import crypto from 'crypto';
+
 
 function validateWebhookSignature(req: any): boolean {
   const xSignature = req.headers['x-signature'] as string;
@@ -2839,12 +2839,23 @@ app.get('/professionals/mercadopago/auth-url', authenticate, async (req: any, re
   const professional = await prisma.professional.findUnique({ where: { userId: req.user.id } });
   if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
 
+  // PKCE: generamos un verifier aleatorio y su challenge (SHA256, base64url)
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+
+  await prisma.professional.update({
+    where: { id: professional.id },
+    data: { mpPkceVerifier: codeVerifier },
+  });
+
   const params = new URLSearchParams({
     client_id: process.env.MP_CLIENT_ID as string,
     response_type: 'code',
     platform_id: 'mp',
     redirect_uri: process.env.MP_OAUTH_REDIRECT_URI as string,
-    state: professional.id, // usamos esto para saber a quién pertenece cuando vuelva el callback
+    state: professional.id,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
   });
 
   res.json({ url: `https://auth.mercadopago.com/authorization?${params.toString()}` });
@@ -2852,30 +2863,42 @@ app.get('/professionals/mercadopago/auth-url', authenticate, async (req: any, re
 
 // Mercado Pago redirige acá después de que el profesional autoriza
 app.get('/professionals/mercadopago/callback', async (req: any, res: any) => {
-  const { code, state: professionalId } = req.query;
+  const { code, state: professionalId, error, error_description } = req.query;
+
+  if (error) {
+    console.error('💥 Mercado Pago rechazó la autorización:', error, error_description);
+    return res.status(400).send(`Error de autorización: ${error_description || error}`);
+  }
 
   if (!code || !professionalId) {
     return res.status(400).send('Faltan parámetros de autorización');
   }
 
   try {
+    const professional = await prisma.professional.findUnique({ where: { id: professionalId as string } });
+    if (!professional?.mpPkceVerifier) {
+      return res.status(400).send('No se encontró el verifier de esta solicitud. Volvé a intentar desde la app.');
+    }
+
     const tokenRes = await axios.post(`${MP_API}/oauth/token`, {
       client_id: process.env.MP_CLIENT_ID,
       client_secret: process.env.MP_CLIENT_SECRET,
       grant_type: 'authorization_code',
       code,
       redirect_uri: process.env.MP_OAUTH_REDIRECT_URI,
+      code_verifier: professional.mpPkceVerifier,
     });
 
     const { access_token, refresh_token, user_id, expires_in } = tokenRes.data;
 
-    await prisma.professional.update({
+await prisma.professional.update({
       where: { id: professionalId as string },
       data: {
         mpUserId: String(user_id),
         mpAccessToken: access_token,
         mpRefreshToken: refresh_token,
         mpTokenExpiresAt: new Date(Date.now() + expires_in * 1000),
+        mpPkceVerifier: null,
       },
     });
 
