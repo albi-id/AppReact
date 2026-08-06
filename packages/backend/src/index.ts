@@ -211,7 +211,7 @@ function calculateChargeAmount(professionalAmount: number) {
   return { professionalAmount, platformFee, mpFeeEstimate, totalToCharge };
 }
 
-async function chargeServiceAutomatically(serviceId: string) {
+async function chargeServiceWithToken(serviceId: string, cardToken: string) {
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
 
   if (!service || !service.amount || service.paidAt) {
@@ -224,7 +224,6 @@ async function chargeServiceAutomatically(serviceId: string) {
   if (!paymentMethod) {
     return { success: false, reason: 'no_payment_method' as const };
   }
-
   if (!service.professionalId) {
     return { success: false, reason: 'no_professional' as const };
   }
@@ -236,47 +235,34 @@ async function chargeServiceAutomatically(serviceId: string) {
     return { success: false, reason: 'professional_not_linked' as const };
   }
 
-  const user = await prisma.user.findUnique({ where: { id: service.requesterId } });
   const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
 
   try {
-    const tokenRes = await axios.post(
-      `${MP_API}/v1/card_tokens`,
-      { card_id: paymentMethod.mpCardId },
-      { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }
-    );
-    const freshToken = tokenRes.data.id;
-
     const orderRes = await axios.post(
-  `${MP_API}/v1/orders`,
-  {
-    type: 'online',
-    processing_mode: 'automatic',
-    external_reference: service.id,
-    total_amount: String(totalToCharge),
-    transactions: {
-          payments: [
-            {
-              amount: String(totalToCharge),
-              payment_method: {
-                id: paymentMethod.cardPaymentMethodId,
-                type: 'credit_card',
-                token: freshToken,
-                installments: 1,
-              },
+      `${MP_API}/v1/orders`,
+      {
+        type: 'online',
+        processing_mode: 'automatic',
+        external_reference: service.id,
+        total_amount: String(totalToCharge),
+        payer: { customer_id: paymentMethod.mpCustomerId },
+        transactions: {
+          payments: [{
+            amount: String(totalToCharge),
+            payment_method: {
+              id: paymentMethod.cardPaymentMethodId,
+              type: 'credit_card',
+              token: cardToken,
+              installments: 1,
             },
-          ],
+          }],
         },
-        payer: {
-          customer_id: paymentMethod.mpCustomerId,
-        },
-        // ⚠️ Acá falta el split/comisión — ver aclaración abajo
       },
       {
         headers: {
-        Authorization: `Bearer ${professionalAccessToken}`,
-        'X-Idempotency-Key': `charge-${service.id}-${Date.now()}`,
-      },
+          Authorization: `Bearer ${professionalAccessToken}`,
+          'X-Idempotency-Key': `charge-${service.id}-${Date.now()}`,
+        },
       }
     );
 
@@ -289,23 +275,18 @@ async function chargeServiceAutomatically(serviceId: string) {
       data: {
         mpPaymentId: payment ? String(payment.id) : null,
         paymentStatus: status as any,
-        platformFee,
-        mpFeeEstimate,
-        totalCharged: totalToCharge,
+        platformFee, mpFeeEstimate, totalCharged: totalToCharge,
         paidAt: status === 'approved' ? new Date() : null,
       },
     });
 
-    return {
-      success: status === 'approved',
-      status: payment?.status,
-      statusDetail: payment?.status_detail,
-    };
+    return { success: status === 'approved', status: payment?.status, statusDetail: payment?.status_detail };
   } catch (error: any) {
-    console.error(`💥 Error cobrando (Orders) servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
+    console.error(`💥 Error cobrando con token servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
     return { success: false, reason: 'mp_error' as const };
   }
 }
+ 
 
 const SUPPORTED_PAYMENT_STATUSES = ['pending', 'approved', 'rejected', 'in_process'] as const;
 function mapPaymentStatus(mpStatus: string) {
@@ -1108,26 +1089,46 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
 
     console.log(`✅ [FINISH] Servicio por tiempo #${serviceId} finalizado | Importe: $${amount}`);
 
-    const chargeResult = await chargeServiceAutomatically(serviceId);
-
-    if (!chargeResult.success) {
-      console.log(`⚠️ [FINISH] Cobro automático no completado para ${serviceId}: ${chargeResult.reason || chargeResult.statusDetail}`);
-    }
-
-    res.json({ 
+  res.json({ 
 
       message: 'Servicio finalizado correctamente', 
 
       service: updated,
 
       importe: amount,
-      charged: chargeResult.success,
     });
-
   } catch (error: any) {
     console.error('💥 [FINISH] Error al finalizar servicio:', error);
     res.status(500).json({ error: 'Error interno al finalizar el servicio' });
   }
+});
+
+app.post('/services/:id/charge-with-token', authenticate, async (req: any, res: any) => {
+  const { cardToken } = req.body;
+  const userId = req.user.id;
+
+  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+
+  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+  if (!service || service.requesterId !== userId) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+  if (service.status !== 'COMPLETED' || !service.amount) {
+    return res.status(400).json({ error: 'Todavía no hay monto a cobrar' });
+  }
+  if (service.paidAt) {
+    return res.status(400).json({ error: 'Ya fue pagado' });
+  }
+
+  const result = await chargeServiceWithToken(req.params.id, cardToken);
+
+  if (result.success) {
+    return res.json({ approved: true });
+  }
+  if (result.reason === 'no_payment_method') {
+    return res.status(400).json({ error: 'No tenés un método de pago vinculado' });
+  }
+  return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
 });
 
 // HU-14: Calificar servicio (Usuario)
@@ -1896,14 +1897,10 @@ app.patch('/services/:serviceId/confirm-amount', authenticate, async (req: any, 
       data: { amount: service.proposedAmount },
     });
 
-    const chargeResult = await chargeServiceAutomatically(serviceId);
-
-    res.json({
+   res.json({
       message: 'Monto confirmado',
       service: updated,
       importe: updated.amount,
-      charged: chargeResult.success,
-      chargeReason: chargeResult.success ? null : (chargeResult.reason || chargeResult.statusDetail),
     });
   } catch (error: any) {
     console.error('💥 Error confirmando monto:', error);
@@ -2836,7 +2833,7 @@ app.post('/payments/link', authenticate, async (req, res) => {
 app.get('/payments/status', authenticate, async (req, res) => {
   const userId = (req as any).user.id;
   const pm = await prisma.paymentMethod.findUnique({ where: { userId } });
-  res.json(pm ? { linked: true, cardBrand: pm.cardBrand, cardLastFour: pm.cardLastFour } : { linked: false });
+  res.json(pm ? { linked: true, cardBrand: pm.cardBrand, cardLastFour: pm.cardLastFour, cardId: pm.mpCardId } : { linked: false });
 });
 
 app.delete('/payments/unlink', authenticate, async (req, res) => {
@@ -2855,6 +2852,7 @@ app.delete('/payments/unlink', authenticate, async (req, res) => {
   res.json({ unlinked: true });
 });
 
+/*
 app.post('/services/:id/charge', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
   const service = await prisma.service.findUnique({ where: { id: req.params.id } });
@@ -2882,7 +2880,7 @@ app.post('/services/:id/charge', authenticate, async (req: any, res: any) => {
   return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
 });
 
-
+*/
 
 function validateWebhookSignature(req: any): boolean {
   const xSignature = req.headers['x-signature'] as string;

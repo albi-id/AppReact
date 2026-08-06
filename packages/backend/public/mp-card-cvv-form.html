@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Confirmar Pago</title>
+  <script src="https://sdk.mercadopago.com/js/v2"></script>
+  <style>
+    body {
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, sans-serif;
+      padding: 20px;
+      margin: 0;
+    }
+    .amount {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .amount .value {
+      font-size: 36px;
+      font-weight: bold;
+      color: #34d399;
+    }
+    .amount .label {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-top: 4px;
+    }
+    .card-info {
+      background: #1f2937;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .card-info .brand {
+      font-weight: bold;
+      text-transform: capitalize;
+    }
+    label {
+      display: block;
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    #cvv-container {
+      background: #1f2937;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 20px;
+      height: 24px;
+    }
+    button {
+      width: 100%;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 16px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    button:disabled {
+      opacity: 0.5;
+    }
+    #error {
+      color: #ef4444;
+      margin-bottom: 12px;
+      font-size: 14px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="amount">
+    <div class="value" id="amountValue">$0</div>
+    <div class="label">Monto a pagar</div>
+  </div>
+
+  <div class="card-info">
+    <div>💳</div>
+    <div>
+      <div class="brand" id="cardBrand">Tarjeta</div>
+      <div id="cardLast4" style="color:#94a3b8; font-size: 13px;">•••• ••••</div>
+    </div>
+  </div>
+
+  <form id="form-checkout">
+    <label for="cvv-container">Código de seguridad (CVV)</label>
+    <div id="cvv-container"></div>
+    <div id="error"></div>
+    <button type="submit" id="submitBtn">Confirmar Pago</button>
+  </form>
+
+  <script>
+    // ⚠️ Debe ser SIEMPRE la misma Public Key que uses en mp-card-form.html
+    const mp = new MercadoPago('APP_USR-b0168c42-fa0c-450b-8f19-e08903606e99');
+
+    const params = new URLSearchParams(window.location.search);
+    const cardId = params.get('cardId');
+    const amount = params.get('amount');
+    const cardBrand = params.get('brand') || 'Tarjeta';
+    const cardLast4 = params.get('last4') || '••••';
+
+    document.getElementById('amountValue').textContent = '$' + amount;
+    document.getElementById('cardBrand').textContent = cardBrand;
+    document.getElementById('cardLast4').textContent = '•••• ' + cardLast4;
+
+    const securityCodeElement = mp.fields.create('securityCode', {
+      placeholder: 'CVV',
+    }).mount('cvv-container');
+
+    const form = document.getElementById('form-checkout');
+    const errorDiv = document.getElementById('error');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorDiv.textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Procesando...';
+
+      try {
+        const token = await mp.fields.createCardToken({ cardId });
+
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            success: true,
+            token: token.id,
+          }));
+        }
+      } catch (error) {
+        const message = error?.message || 'No se pudo procesar el pago. Revisá el CVV.';
+        errorDiv.textContent = message;
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Confirmar Pago';
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            success: false,
+            error: message,
+          }));
+        }
+      }
+    });
+  </script>
+</body>
+</html>
