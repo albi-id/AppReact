@@ -2739,6 +2739,7 @@ app.post('/payments/link', authenticate, async (req, res) => {
     let existing = await prisma.paymentMethod.findUnique({ where: { userId } });
     let mpCustomerId = existing?.mpCustomerId;
 
+    /*
     if (!mpCustomerId) {
       const user = await prisma.user.findUnique({ where: { id: userId } });
       console.log('🔵 [MP LINK] Creando customer para:', user!.email);
@@ -2751,11 +2752,40 @@ app.post('/payments/link', authenticate, async (req, res) => {
         }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
         mpCustomerId = customerRes.data.id;
         console.log('✅ [MP LINK] Customer creado:', mpCustomerId);
+      } */
+     if (!mpCustomerId) {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      console.log('🔵 [MP LINK] Creando customer para:', user!.email);
+      try {
+        const customerRes = await axios.post(`${MP_API}/v1/customers`, {
+          email: user!.email,
+          first_name: user!.firstName,
+          last_name: user!.lastName,
+        }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
+        mpCustomerId = customerRes.data.id;
+        console.log('✅ [MP LINK] Customer creado:', mpCustomerId);
       } catch (customerError: any) {
-        console.error('💥 [MP LINK] Error creando CUSTOMER:', JSON.stringify(customerError.response?.data, null, 2));
-        throw customerError;
+        const alreadyExists = customerError.response?.data?.cause?.some(
+          (c: any) => c.code === '101'
+        );
+
+        if (alreadyExists) {
+          const searchRes = await axios.get(
+            `${MP_API}/v1/customers/search`,
+            {
+              params: { email: user!.email },
+              headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` },
+            }
+          );
+          const found = searchRes.data.results?.[0];
+          if (!found) throw customerError;
+          mpCustomerId = found.id;
+        } else {
+          throw customerError;
+        }
       }
     }
+      
 
     if (!mpCustomerId) {
       throw new Error('No se pudo crear el customer de Mercado Pago');
