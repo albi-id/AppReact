@@ -272,9 +272,9 @@ async function chargeServiceAutomatically(serviceId: string) {
       },
       {
         headers: {
-          Authorization: `Bearer ${professionalAccessToken}`,
-          'X-Idempotency-Key': `charge-${service.id}`,
-        },
+        Authorization: `Bearer ${professionalAccessToken}`,
+        'X-Idempotency-Key': `charge-${service.id}-${Date.now()}`,
+      },
       }
     );
 
