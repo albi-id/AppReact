@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Vincular Tarjeta</title>
+  <script src="https://sdk.mercadopago.com/js/v2"></script>
+  <style>
+    body {
+      background: #422d2d;
+      color: #fff;
+      font-family: -apple-system, sans-serif;
+      padding: 20px;
+      margin: 0;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #1d62c3;
+      color: #b66565;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+      font-size: 16px;
+  
+    }
+    button {
+      width: 100%;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 16px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    button:disabled {
+      opacity: 0.5;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+    }
+    .row input {
+      flex: 1;
+    }
+    #error {
+      color: #ef4444;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <form id="form-checkout">
+    <input id="cardNumber" placeholder="Número de tarjeta" inputmode="numeric" maxlength="19" required />
+    <input id="cardholderName" placeholder="Nombre y apellido (como figura en la tarjeta)" required />
+    <div class="row">
+      <input id="cardExpirationMonth" placeholder="MM" inputmode="numeric" maxlength="2" required />
+      <input id="cardExpirationYear" placeholder="AA" inputmode="numeric" maxlength="2" required />
+      <input id="securityCode" placeholder="CVV" inputmode="numeric" maxlength="4" required />
+    </div>
+    <input id="docNumber" placeholder="DNI (sin puntos)" inputmode="numeric" required />
+    <div id="error"></div>
+    <button type="submit" id="submitBtn">Guardar Tarjeta</button>
+  </form>
+
+  <script>
+    // Reemplazá por tu Public Key de TEST. Es pública, no hace falta ocultarla.
+    const mp = new MercadoPago('APP_USR-3fcb70f1-5a52-4166-8e96-03adcb2e2d69');
+
+    const form = document.getElementById('form-checkout');
+    const errorDiv = document.getElementById('error');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorDiv.textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Procesando...';
+
+      try {
+        console.log('Public Key usada:', mp);
+        const cardToken = await mp.createCardToken({
+          cardNumber: document.getElementById('cardNumber').value.replace(/\s/g, ''),
+          cardholderName: document.getElementById('cardholderName').value,
+          cardExpirationMonth: document.getElementById('cardExpirationMonth').value,
+          cardExpirationYear: document.getElementById('cardExpirationYear').value,
+          securityCode: document.getElementById('securityCode').value,
+          identificationType: 'DNI',
+          identificationNumber: document.getElementById('docNumber').value,
+        });
+ 
+        console.log('🔑 TOKEN GENERADO:', cardToken.id);
+
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            success: true,
+            token: cardToken.id,
+            firstSixDigits: cardToken.first_six_digits,
+            lastFourDigits: cardToken.last_four_digits,
+          }));
+        }
+      } catch (error) {
+        const message = error?.message || 'No se pudo procesar la tarjeta. Revisá los datos.';
+        errorDiv.textContent = message;
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Guardar Tarjeta';
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          success: false,
+          error: message,
+        }));
+      }
+    });
+  </script>
+</body>
+</html>
