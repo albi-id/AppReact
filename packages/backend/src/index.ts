@@ -355,6 +355,8 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         s."arrivedAt",
         s."completedAt",
         s."paidAt",
+        s."proposedAmount",
+        s."amountProposedAt",
         p.id as "professionalId",
         p."fullName",
         p.profession,
@@ -390,6 +392,8 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       arrivedAt: service.arrivedAt,
       completedAt: service.completedAt,
       paidAt: service.paidAt,
+      proposedAmount: service.proposedAmount,
+      amountProposedAt: service.amountProposedAt,
       
       professional: service.professionalId ? {
         id: service.professionalId,
@@ -475,6 +479,8 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         s."arrivedAt",
         s."completedAt",
         s."paidAt",
+        s."proposedAmount",
+        s."amountProposedAt",
         r.id as "requesterId",
         r."firstName",
         r."lastName",
@@ -545,6 +551,8 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         arrivedAt: service.arrivedAt,
         completedAt: service.completedAt,
         paidAt: service.paidAt,
+        proposedAmount: service.proposedAmount,
+        amountProposedAt: service.amountProposedAt,
         pickupLat: service.pickupLat,
         pickupLng: service.pickupLng,
 
