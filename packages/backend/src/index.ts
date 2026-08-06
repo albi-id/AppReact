@@ -191,6 +191,7 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 const MP_API = 'https://api.mercadopago.com';
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN as string;
+console.log('🔑 MP_ACCESS_TOKEN termina en:', MP_ACCESS_TOKEN?.slice(-15));
 // ==================== HELPERS DE PAGOS ====================
 const PLATFORM_FEE_RATE = 0.15;
 const MP_FEE_RATE = 0.0499;      // ⚠️ ajustar según tu panel de MP > Costos
