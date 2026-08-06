@@ -300,7 +300,7 @@ async function chargeServiceAutomatically(serviceId: string) {
       statusDetail: payment?.status_detail,
     };
   } catch (error: any) {
-    console.error(`💥 Error cobrando (Orders) servicio ${serviceId}:`, error.response?.data || error.message);
+    console.error(`💥 Error cobrando (Orders) servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
     return { success: false, reason: 'mp_error' as const };
   }
 }
