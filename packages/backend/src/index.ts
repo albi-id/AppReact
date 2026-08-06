@@ -2915,7 +2915,106 @@ await prisma.professional.update({
   }
 });
 
+// en tu index.ts, junto a tus otras rutas
+app.get('/mp-card-form.html', (req, res) => {
+  res.set('Content-Type', 'text/html');
+  res.send(buildCardFormHtml(process.env.MP_PUBLIC_KEY as string));
+});
 
+function buildCardFormHtml(publicKey: string) {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<style>
+  body { background:#000; margin:0; padding:20px; font-family: -apple-system, sans-serif; }
+  #form-checkout { display:flex; flex-direction:column; gap:14px; }
+  label { color:#60a5fa; font-weight:700; font-size:13px; }
+  .field { background:#000; border:1px solid #60a5fa; border-radius:12px; padding:14px; height:20px; }
+  input { background:#000; color:#fff; border:1px solid #60a5fa; border-radius:12px; padding:14px; font-size:16px; box-sizing:border-box; }
+  button { background:#6388ba; color:#000; font-weight:700; font-size:17px; padding:16px; border:none; border-radius:16px; margin-top:10px; }
+  #status { color:#ef4444; font-size:13px; margin-top:8px; min-height:16px; }
+</style>
+</head>
+<body>
+  <form id="form-checkout">
+    <div>
+      <label>Número de tarjeta</label>
+      <div id="form-checkout__cardNumber" class="field"></div>
+    </div>
+    <div>
+      <label>Titular</label>
+      <input type="text" id="form-checkout__cardholderName" placeholder="Como figura en la tarjeta" />
+    </div>
+    <div style="display:flex; gap:10px;">
+      <div style="flex:1">
+        <label>Vencimiento</label>
+        <div id="form-checkout__expirationDate" class="field"></div>
+      </div>
+      <div style="flex:1">
+        <label>CVV</label>
+        <div id="form-checkout__securityCode" class="field"></div>
+      </div>
+    </div>
+    <div>
+      <label>DNI</label>
+      <input type="text" id="form-checkout__identificationNumber" placeholder="Sin puntos" />
+    </div>
+    <select id="form-checkout__identificationType" style="display:none"></select>
+    <select id="form-checkout__issuer" style="display:none"></select>
+    <select id="form-checkout__installments" style="display:none"></select>
+
+    <button type="submit">Vincular Tarjeta</button>
+    <div id="status"></div>
+  </form>
+
+  <script src="https://sdk.mercadopago.com/js/v2"></script>
+  <script>
+    const mp = new MercadoPago("${publicKey}");
+
+    function post(payload) {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      }
+    }
+
+    const cardForm = mp.cardForm({
+      amount: "100",
+      iframe: true,
+      form: {
+        id: "form-checkout",
+        cardNumber: { id: "form-checkout__cardNumber", placeholder: "Número de tarjeta" },
+        expirationDate: { id: "form-checkout__expirationDate", placeholder: "MM/YY" },
+        securityCode: { id: "form-checkout__securityCode", placeholder: "CVV" },
+        cardholderName: { id: "form-checkout__cardholderName", placeholder: "Titular" },
+        identificationType: { id: "form-checkout__identificationType" },
+        identificationNumber: { id: "form-checkout__identificationNumber", placeholder: "DNI" },
+        issuer: { id: "form-checkout__issuer" },
+        installments: { id: "form-checkout__installments" },
+      },
+      callbacks: {
+        onFormMounted: (error) => {
+          if (error) post({ success: false, error: "No se pudo cargar el formulario" });
+        },
+        onSubmit: (event) => {
+          event.preventDefault();
+          try {
+            const data = cardForm.getCardFormData();
+            post({ success: true, token: data.token });
+          } catch (e) {
+            post({ success: false, error: "No se pudo generar el token de la tarjeta" });
+          }
+        },
+        onError: (errors) => {
+          document.getElementById('status').innerText = 'Verificá los datos de la tarjeta';
+          post({ success: false, error: "Verificá los datos de la tarjeta" });
+        },
+      },
+    });
+  </script>
+</body>
+</html>`;
+}
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
