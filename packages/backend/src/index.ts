@@ -247,12 +247,13 @@ async function chargeServiceAutomatically(serviceId: string) {
     const freshToken = tokenRes.data.id;
 
     const orderRes = await axios.post(
-      `${MP_API}/v1/orders`,
-      {
-        type: 'online',
-        processing_mode: 'automatic',
-        external_reference: service.id,
-        transactions: {
+  `${MP_API}/v1/orders`,
+  {
+    type: 'online',
+    processing_mode: 'automatic',
+    external_reference: service.id,
+    total_amount: String(totalToCharge),
+    transactions: {
           payments: [
             {
               amount: String(totalToCharge),
@@ -266,7 +267,7 @@ async function chargeServiceAutomatically(serviceId: string) {
           ],
         },
         payer: {
-          email: user!.email,
+          customer_id: paymentMethod.mpCustomerId,
         },
         // ⚠️ Acá falta el split/comisión — ver aclaración abajo
       },
