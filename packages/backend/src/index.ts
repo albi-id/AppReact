@@ -2662,6 +2662,7 @@ app.patch('/services/:id/cancel', authenticate, async (req: any, res: any) => {
 
 
 //para pagos
+/*
 app.post('/payments/link', authenticate, async (req, res) => {
   const { cardToken } = req.body;
   const userId = (req as any).user.id;
@@ -2714,6 +2715,80 @@ if (!mpCustomerId) {
     res.json({ linked: true, cardLastFour: paymentMethod.cardLastFour, cardBrand: paymentMethod.cardBrand });
   } catch (error: any) {
     console.error('Error vinculando MP:', error.response?.data || error.message);
+    res.status(400).json({ error: 'No se pudo vincular la tarjeta. Verificá los datos e intentá de nuevo.' });
+  }
+});
+*/
+
+app.post('/payments/link', authenticate, async (req, res) => {
+  const { cardToken } = req.body;
+  const userId = (req as any).user.id;
+
+  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+
+  try {
+    let existing = await prisma.paymentMethod.findUnique({ where: { userId } });
+    let mpCustomerId = existing?.mpCustomerId;
+
+    if (!mpCustomerId) {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      console.log('🔵 [MP LINK] Creando customer para:', user!.email);
+
+      try {
+        const customerRes = await axios.post(`${MP_API}/v1/customers`, {
+          email: user!.email,
+          first_name: user!.firstName,
+          last_name: user!.lastName,
+        }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
+        mpCustomerId = customerRes.data.id;
+        console.log('✅ [MP LINK] Customer creado:', mpCustomerId);
+      } catch (customerError: any) {
+        console.error('💥 [MP LINK] Error creando CUSTOMER:', JSON.stringify(customerError.response?.data, null, 2));
+        throw customerError;
+      }
+    }
+
+    if (!mpCustomerId) {
+      throw new Error('No se pudo crear el customer de Mercado Pago');
+    }
+
+    if (existing?.mpCardId) {
+      await axios.delete(`${MP_API}/v1/customers/${mpCustomerId}/cards/${existing.mpCardId}`,
+        { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }).catch(() => {});
+    }
+
+    console.log('🔵 [MP LINK] Asociando tarjeta al customer:', mpCustomerId, '| token:', cardToken);
+
+    let card;
+    try {
+      const cardRes = await axios.post(`${MP_API}/v1/customers/${mpCustomerId}/cards`,
+        { token: cardToken }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
+      card = cardRes.data;
+      console.log('✅ [MP LINK] Tarjeta asociada:', card.id, '| BIN:', card.first_six_digits);
+    } catch (cardError: any) {
+      console.error('💥 [MP LINK] Error asociando TARJETA:', JSON.stringify(cardError.response?.data, null, 2));
+      throw cardError;
+    }
+
+    const paymentMethod = await prisma.paymentMethod.upsert({
+      where: { userId },
+      update: {
+        mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
+        cardPaymentMethodId: card.payment_method?.id,
+        cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
+        cardExpYear: card.expiration_year, linkedAt: new Date(),
+      },
+      create: {
+        userId, mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
+        cardPaymentMethodId: card.payment_method?.id,
+        cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
+        cardExpYear: card.expiration_year,
+      },
+    });
+
+    res.json({ linked: true, cardLastFour: paymentMethod.cardLastFour, cardBrand: paymentMethod.cardBrand });
+  } catch (error: any) {
+    console.error('Error vinculando MP (resumen):', error.response?.data || error.message);
     res.status(400).json({ error: 'No se pudo vincular la tarjeta. Verificá los datos e intentá de nuevo.' });
   }
 });
