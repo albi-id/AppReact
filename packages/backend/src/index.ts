@@ -798,6 +798,74 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
   }
 });
 */
+
+
+// ==================== CONFIG DE MATCHING (compartida) ====================
+const MAX_DISTANCE_KM = 10; // criterio único de negocio para request y reject
+
+// ==================== HELPER: buscar profesional más cercano ====================
+async function findNearestProfessional(
+  prisma: PrismaClient,
+  {
+    pickupLat,
+    pickupLng,
+    type,
+    cityId,
+    provinceId,
+    excludeProfessionalIds = [] as string[],
+    limit = 5,
+  }: {
+    pickupLat: number;
+    pickupLng: number;
+    type: string;
+    cityId: string | number;
+    provinceId: string | number;
+    excludeProfessionalIds?: string[];
+    limit?: number;
+  }
+) {
+  const candidates = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT 
+      p.id,
+      p."fullName",
+      p.profession,
+      ST_Distance(
+        ST_MakePoint($2::float, $1::float)::geography,
+        p."lastLocation"::geography
+      ) / 1000 as "distanceKm"
+    FROM "professionals" p
+    WHERE p."isActive" = true  
+      AND p.status = 'APPROVED'
+      AND p.profession = $3
+      AND p."cityId" = $4
+      AND p."provinceId" = $5
+      AND ST_DWithin(
+        p."lastLocation"::geography,
+        ST_MakePoint($2, $1)::geography,
+        $6
+      )
+      AND NOT (p.id = ANY($7::text[]))
+      AND NOT EXISTS (
+        SELECT 1 FROM "services" s 
+        WHERE s."professionalId" = p.id 
+          AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED')
+      )
+    ORDER BY "distanceKm" ASC
+    LIMIT $8;
+    `,
+    pickupLat,
+    pickupLng,
+    type,
+    cityId,
+    provinceId,
+    MAX_DISTANCE_KM * 1000,
+    excludeProfessionalIds,
+    limit
+  );
+
+  return candidates;
+}
+ 
 // HU-09: Rechazar oferta + fallback con memoria de rechazos
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
@@ -1341,72 +1409,6 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
   }
 });
 
-// ==================== CONFIG DE MATCHING (compartida) ====================
-const MAX_DISTANCE_KM = 10; // criterio único de negocio para request y reject
-
-// ==================== HELPER: buscar profesional más cercano ====================
-async function findNearestProfessional(
-  prisma: PrismaClient,
-  {
-    pickupLat,
-    pickupLng,
-    type,
-    cityId,
-    provinceId,
-    excludeProfessionalIds = [] as string[],
-    limit = 5,
-  }: {
-    pickupLat: number;
-    pickupLng: number;
-    type: string;
-    cityId: string | number;
-    provinceId: string | number;
-    excludeProfessionalIds?: string[];
-    limit?: number;
-  }
-) {
-  const candidates = await prisma.$queryRawUnsafe<any[]>(`
-    SELECT 
-      p.id,
-      p."fullName",
-      p.profession,
-      ST_Distance(
-        ST_MakePoint($2::float, $1::float)::geography,
-        p."lastLocation"::geography
-      ) / 1000 as "distanceKm"
-    FROM "professionals" p
-    WHERE p."isActive" = true  
-      AND p.status = 'APPROVED'
-      AND p.profession = $3
-      AND p."cityId" = $4
-      AND p."provinceId" = $5
-      AND ST_DWithin(
-        p."lastLocation"::geography,
-        ST_MakePoint($2, $1)::geography,
-        $6
-      )
-      AND NOT (p.id = ANY($7::text[]))
-      AND NOT EXISTS (
-        SELECT 1 FROM "services" s 
-        WHERE s."professionalId" = p.id 
-          AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED')
-      )
-    ORDER BY "distanceKm" ASC
-    LIMIT $8;
-    `,
-    pickupLat,
-    pickupLng,
-    type,
-    cityId,
-    provinceId,
-    MAX_DISTANCE_KM * 1000,
-    excludeProfessionalIds,
-    limit
-  );
-
-  return candidates;
-}
- 
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
@@ -1533,6 +1535,9 @@ const professionals = await findNearestProfessional(prisma, {
       limit: 8,
     });
 
+    console.log('🔍 [DEBUG] paymentModality recibido:', paymentModality);
+    console.log('🔍 [DEBUG] candidatos de findNearestProfessional:', professionals);
+    
     // Filtramos a los candidatos que realmente ofrecen la modalidad pedida por el cliente
     let eligibleProfessionals = professionals || [];
     if (paymentModality && eligibleProfessionals.length) {
