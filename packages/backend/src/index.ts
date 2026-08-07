@@ -1537,7 +1537,7 @@ const professionals = await findNearestProfessional(prisma, {
 
     console.log('🔍 [DEBUG] paymentModality recibido:', paymentModality);
     console.log('🔍 [DEBUG] candidatos de findNearestProfessional:', professionals);
-    
+
     // Filtramos a los candidatos que realmente ofrecen la modalidad pedida por el cliente
     let eligibleProfessionals = professionals || [];
     if (paymentModality && eligibleProfessionals.length) {
@@ -1551,7 +1551,7 @@ const professionals = await findNearestProfessional(prisma, {
       const eligibleIds = new Set(withModality.map((p) => p.id));
       eligibleProfessionals = eligibleProfessionals.filter((p: any) => eligibleIds.has(p.id));
     }
-
+    console.log('🔍 [DEBUG] eligibleProfessionals después del filtro:', eligibleProfessionals);
     if (!eligibleProfessionals?.length) {
       await prisma.service.update({
         where: { id: newService.id },
