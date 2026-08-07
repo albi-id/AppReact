@@ -90,6 +90,7 @@ model Professional {
   modalities Modality[]
   vehicleType String?
   lastLocation  Unsupported("gis.geography(Point, 4326)")?
+  lastLocationAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   rejectCount     Int      @default(0)
@@ -148,6 +149,8 @@ model Service {
   totalCharged  Float?
   mpPaymentId   String?
   paymentStatus PaymentStatus?
+  paymentModality Modality?
+  offeredAt       DateTime?
   @@map("services")
   @@index([requesterId, status])
   @@index([professionalId, status])
