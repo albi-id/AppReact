@@ -1600,7 +1600,7 @@ const professionals = await findNearestProfessional(prisma, {
 // =============================================
 
 app.get('/professionals', async (req: any, res: any) => {
-  const { search, profession, provinceId, cityId, page = 1, limit = 15 } = req.query;
+  const { search, profession, provinceId, cityId, modality, page = 1, limit = 15 } = req.query;
 
   try {
     const pageNum = Math.max(1, parseInt(page as string));
@@ -1616,6 +1616,10 @@ app.get('/professionals', async (req: any, res: any) => {
 
     if (provinceId) where.provinceId = provinceId;
     if (cityId) where.cityId = cityId;
+
+    if (modality) {
+      where.modalities = { has: modality as string };
+    }
 
     if (search) {
       where.OR = [
@@ -2196,13 +2200,15 @@ app.get('/professions/available', async (req: any, res: any) => {
 
     const modalitiesByProfession = new Map<string, Set<string>>();
 
+   const PAYMENT_MODALITIES = ['TIME_BASED', 'FIXED_PRICE'];
+
     for (const p of professionals) {
       if (!modalitiesByProfession.has(p.profession)) {
         modalitiesByProfession.set(p.profession, new Set());
       }
       const set = modalitiesByProfession.get(p.profession)!;
       const mods = Array.isArray(p.modalities) ? p.modalities : [p.modalities];
-      mods.forEach((m: any) => m && set.add(m));
+      mods.forEach((m: any) => { if (PAYMENT_MODALITIES.includes(m)) set.add(m); });
     }
 
     const professions = Array.from(modalitiesByProfession.entries())
