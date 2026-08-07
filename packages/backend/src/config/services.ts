@@ -51,8 +51,8 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
 {
     key: 'Electricista',
      label: 'Electricista',
-    pricePerMinute: 0,
-    basePrice: 0,
+    pricePerMinute: 30,
+    basePrice: 450,
    },
 
 {
