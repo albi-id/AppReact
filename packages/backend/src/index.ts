@@ -2789,12 +2789,7 @@ app.post('/payments/link', authenticate, async (req, res) => {
       throw new Error('No se pudo crear el customer de Mercado Pago');
     }
 
-    if (existing?.mpCardId) {
-      await axios.delete(`${MP_API}/v1/customers/${mpCustomerId}/cards/${existing.mpCardId}`,
-        { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }).catch(() => {});
-    }
-
-    console.log('🔵 [MP LINK] Asociando tarjeta al customer:', mpCustomerId, '| token:', cardToken);
+   console.log('🔵 [MP LINK] Asociando tarjeta al customer:', mpCustomerId, '| token:', cardToken);
 
     let card;
     try {
@@ -2805,6 +2800,12 @@ app.post('/payments/link', authenticate, async (req, res) => {
     } catch (cardError: any) {
       console.error('💥 [MP LINK] Error asociando TARJETA:', JSON.stringify(cardError.response?.data, null, 2));
       throw cardError;
+    }
+
+    // Recién ahora que la tarjeta nueva quedó confirmada, borramos la anterior (si había)
+    if (existing?.mpCardId && existing.mpCardId !== card.id) {
+      await axios.delete(`${MP_API}/v1/customers/${mpCustomerId}/cards/${existing.mpCardId}`,
+        { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }).catch(() => {});
     }
 
     const paymentMethod = await prisma.paymentMethod.upsert({

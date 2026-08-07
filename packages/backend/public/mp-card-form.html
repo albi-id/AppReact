@@ -4,26 +4,38 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Vincular Tarjeta</title>
-  <script src="https://sdk.mercadopago.com/js/v2"></script>
   <style>
+    html {
+      background: #000;
+      height: 100%;
+    }
     body {
-      background: #422d2d;
+      background: #000;
       color: #fff;
       font-family: -apple-system, sans-serif;
       padding: 20px;
       margin: 0;
+      min-height: 100%;
+      overscroll-behavior-y: none;
+      -webkit-tap-highlight-color: transparent;
     }
     input {
       width: 100%;
       box-sizing: border-box;
-      background: #1d62c3;
-      color: #b66565;
-      border: 1px solid #334155;
+      background: #000;
+      color: #fff;
+      border: 1px solid #60a5fa;
       border-radius: 10px;
       padding: 14px;
       margin-bottom: 12px;
       font-size: 16px;
-  
+    }
+    input::placeholder {
+      color: #64748b;
+    }
+    input:focus {
+      outline: none;
+      border-color: #93c5fd;
     }
     button {
       width: 100%;
@@ -50,11 +62,37 @@
       margin-bottom: 12px;
       font-size: 14px;
     }
+    #loadingOverlay {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.2s ease;
+    }
+    #loadingOverlay.is-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #334155;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
+  <div id="loadingOverlay"><div class="spinner"></div></div>
   <form id="form-checkout">
-    <input id="cardNumber" placeholder="Número de tarjeta" inputmode="numeric" maxlength="19" required />
+<input id="cardNumber" placeholder="Número de tarjeta" inputmode="numeric" maxlength="23" required />
     <input id="cardholderName" placeholder="Nombre y apellido (como figura en la tarjeta)" required />
     <div class="row">
       <input id="cardExpirationMonth" placeholder="MM" inputmode="numeric" maxlength="2" required />
@@ -66,13 +104,34 @@
     <button type="submit" id="submitBtn">Guardar Tarjeta</button>
   </form>
 
+  <script src="https://sdk.mercadopago.com/js/v2"></script>
   <script>
     // Reemplazá por tu Public Key de TEST. Es pública, no hace falta ocultarla.
     const mp = new MercadoPago('APP_USR-b0168c42-fa0c-450b-8f19-e08903606e99');
 
+   const loadingOverlay = document.getElementById('loadingOverlay');
+    window.addEventListener('load', () => {
+      loadingOverlay.classList.add('is-hidden');
+    });
+
+    const cardNumberInput = document.getElementById('cardNumber');
+    cardNumberInput.addEventListener('input', (e) => {
+      const raw = e.target.value.replace(/\D/g, '').slice(0, 19);
+      e.target.value = raw.replace(/(.{4})/g, '$1 ').trim();
+    });
+
+    // Si se abre con ?mode=edit, es para reemplazar una tarjeta ya guardada
+    const params = new URLSearchParams(window.location.search);
+    const isEdit = params.get('mode') === 'edit';
+    const defaultBtnLabel = isEdit ? 'Actualizar Tarjeta' : 'Guardar Tarjeta';
+    if (isEdit) {
+      document.title = 'Cambiar Tarjeta';
+    }
+
     const form = document.getElementById('form-checkout');
     const errorDiv = document.getElementById('error');
     const submitBtn = document.getElementById('submitBtn');
+    submitBtn.textContent = defaultBtnLabel;
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -81,7 +140,6 @@
       submitBtn.textContent = 'Procesando...';
 
       try {
-        console.log('Public Key usada:', mp);
         const cardToken = await mp.createCardToken({
           cardNumber: document.getElementById('cardNumber').value.replace(/\s/g, ''),
           cardholderName: document.getElementById('cardholderName').value,
@@ -91,8 +149,6 @@
           identificationType: 'DNI',
           identificationNumber: document.getElementById('docNumber').value,
         });
- 
-        console.log('🔑 TOKEN GENERADO:', cardToken.id);
 
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -105,12 +161,14 @@
       } catch (error) {
         const message = error?.message || 'No se pudo procesar la tarjeta. Revisá los datos.';
         errorDiv.textContent = message;
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Guardar Tarjeta';
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          success: false,
-          error: message,
-        }));
+      submitBtn.disabled = false;
+        submitBtn.textContent = defaultBtnLabel;
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            success: false,
+            error: message,
+          }));
+        }
       }
     });
   </script>

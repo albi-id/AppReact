@@ -4,14 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Confirmar Pago</title>
-  <script src="https://sdk.mercadopago.com/js/v2"></script>
   <style>
+    html {
+      background: #000;
+      height: 100%;
+    }
     body {
       background: #000;
       color: #fff;
       font-family: -apple-system, sans-serif;
       padding: 20px;
       margin: 0;
+      min-height: 100%;
+      overscroll-behavior-y: none;
+      -webkit-tap-highlight-color: transparent;
     }
     .amount {
       text-align: center;
@@ -27,7 +33,7 @@
       font-size: 14px;
       margin-top: 4px;
     }
-    .card-info {
+   .card-info {
       background: #1f2937;
       border: 1px solid #334155;
       border-radius: 12px;
@@ -36,24 +42,41 @@
       display: flex;
       align-items: center;
       gap: 12px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .card-info:active {
+      background: #263244;
     }
     .card-info .brand {
       font-weight: bold;
       text-transform: capitalize;
     }
+    .card-info .change-label {
+      margin-left: auto;
+      color: #60a5fa;
+      font-size: 13px;
+      font-weight: bold;
+      white-space: nowrap;
+    }
     label {
       display: block;
-      color: #94a3b8;
+      color: #60a5fa;
+      font-weight: bold;
       font-size: 14px;
       margin-bottom: 8px;
     }
     #cvv-container {
-      background: #1f2937;
-      border: 1px solid #334155;
+      background: #000;
+      border: 1px solid #60a5fa;
       border-radius: 10px;
       padding: 14px;
       margin-bottom: 20px;
       height: 24px;
+      transition: border-color 0.15s ease;
+    }
+    #cvv-container.is-focused {
+      border-color: #93c5fd;
     }
     button {
       width: 100%;
@@ -74,20 +97,47 @@
       font-size: 14px;
       text-align: center;
     }
+    #loadingOverlay {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.2s ease;
+    }
+    #loadingOverlay.is-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #334155;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
+  <div id="loadingOverlay"><div class="spinner"></div></div>
   <div class="amount">
     <div class="value" id="amountValue">$0</div>
     <div class="label">Monto a pagar</div>
   </div>
 
-  <div class="card-info">
+<div class="card-info" id="cardInfo">
     <div>💳</div>
     <div>
       <div class="brand" id="cardBrand">Tarjeta</div>
       <div id="cardLast4" style="color:#94a3b8; font-size: 13px;">•••• ••••</div>
     </div>
+    <div class="change-label">Cambiar ›</div>
   </div>
 
   <form id="form-checkout">
@@ -97,6 +147,7 @@
     <button type="submit" id="submitBtn">Confirmar Pago</button>
   </form>
 
+<script src="https://sdk.mercadopago.com/js/v2"></script>
   <script>
     // ⚠️ Debe ser SIEMPRE la misma Public Key que uses en mp-card-form.html
     const mp = new MercadoPago('APP_USR-b0168c42-fa0c-450b-8f19-e08903606e99');
@@ -107,13 +158,47 @@
     const cardBrand = params.get('brand') || 'Tarjeta';
     const cardLast4 = params.get('last4') || '••••';
 
-    document.getElementById('amountValue').textContent = '$' + amount;
+  const amountNumber = Number(amount) || 0;
+    const formattedAmount = amountNumber.toLocaleString('es-AR', {
+      minimumFractionDigits: amountNumber % 1 !== 0 ? 2 : 0,
+      maximumFractionDigits: 2,
+    });
+    document.getElementById('amountValue').textContent = '$' + formattedAmount;
     document.getElementById('cardBrand').textContent = cardBrand;
     document.getElementById('cardLast4').textContent = '•••• ' + cardLast4;
 
+    const cardInfo = document.getElementById('cardInfo');
+    cardInfo.addEventListener('click', () => {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          action: 'editCard',
+          cardId,
+        }));
+      }
+    });
+
+    const cvvContainer = document.getElementById('cvv-container');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+
     const securityCodeElement = mp.fields.create('securityCode', {
       placeholder: 'CVV',
+      style: {
+        color: '#ffffff',
+        fontSize: '16px',
+        placeholderColor: '#64748b',
+      },
     }).mount('cvv-container');
+
+    securityCodeElement.on('ready', () => {
+      loadingOverlay.classList.add('is-hidden');
+    });
+    securityCodeElement.on('focus', () => cvvContainer.classList.add('is-focused'));
+    securityCodeElement.on('blur', () => cvvContainer.classList.remove('is-focused'));
+
+    // Por las dudas el evento 'ready' tarde en llegar, no dejamos el overlay trabado
+    window.addEventListener('load', () => {
+      setTimeout(() => loadingOverlay.classList.add('is-hidden'), 1500);
+    });
 
     const form = document.getElementById('form-checkout');
     const errorDiv = document.getElementById('error');
