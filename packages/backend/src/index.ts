@@ -1410,7 +1410,7 @@ async function findNearestProfessional(
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
 app.post('/services/request', authenticate, async (req: any, res: any) => {
-  const { type, pickupLat, pickupLng, pickupAddress, pickupAddressExtra, reference, floor, doorNumber, cityId, provinceId, professionalId } = req.body;
+  const { type, pickupLat, pickupLng, pickupAddress, pickupAddressExtra, reference, floor, doorNumber, cityId, provinceId, professionalId, paymentModality } = req.body;
 
   try {
     if (req.dbUser.role !== 'USER') {
@@ -1439,14 +1439,18 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
         // ==================== NUEVO: solicitud directa a un profesional ====================
     let directProfessional: { id: string; fullName: string } | null = null;
 
-    if (professionalId) {
+   if (professionalId) {
       const candidate = await prisma.professional.findUnique({
         where: { id: professionalId },
-        select: { id: true, fullName: true, profession: true, isActive: true, status: true }
+        select: { id: true, fullName: true, profession: true, isActive: true, status: true, modalities: true }
       });
 
       if (!candidate || candidate.profession !== type || candidate.status !== 'APPROVED' || !candidate.isActive) {
         return res.status(409).json({ error: 'El profesional seleccionado ya no está disponible' });
+      }
+
+      if (paymentModality && !candidate.modalities?.includes(paymentModality)) {
+        return res.status(409).json({ error: 'El profesional seleccionado no ofrece esa modalidad de cobro' });
       }
 
       const busy = await prisma.service.findFirst({
@@ -1529,7 +1533,21 @@ const professionals = await findNearestProfessional(prisma, {
       limit: 8,
     });
 
-    if (!professionals?.length) {
+    // Filtramos a los candidatos que realmente ofrecen la modalidad pedida por el cliente
+    let eligibleProfessionals = professionals || [];
+    if (paymentModality && eligibleProfessionals.length) {
+      const withModality = await prisma.professional.findMany({
+        where: {
+          id: { in: eligibleProfessionals.map((p: any) => p.id) },
+          modalities: { has: paymentModality },
+        },
+        select: { id: true },
+      });
+      const eligibleIds = new Set(withModality.map((p) => p.id));
+      eligibleProfessionals = eligibleProfessionals.filter((p: any) => eligibleIds.has(p.id));
+    }
+
+    if (!eligibleProfessionals?.length) {
       await prisma.service.update({
         where: { id: newService.id },
         data: { status: 'WAITING' }
@@ -1547,7 +1565,7 @@ const professionals = await findNearestProfessional(prisma, {
     // ya tomó a un candidato, el constraint único de la DB lo rechaza (P2002)
     // y probamos con el siguiente sin romper el flujo.
     let assigned: any = null;
-    for (const candidate of professionals) {
+    for (const candidate of eligibleProfessionals) {
       try {
         await prisma.service.update({
           where: { id: newService.id },
