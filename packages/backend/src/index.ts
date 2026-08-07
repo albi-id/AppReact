@@ -799,9 +799,124 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
 });
 */
 
+const MAX_REJECT_ATTEMPTS = 5;
 
+async function reassignService(
+  prisma: PrismaClient,
+  serviceId: string,
+  options: { explicitRejectBy?: string } = {}
+) {
+  const service = await prisma.service.findUnique({
+    where: { id: serviceId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      professionalId: true,
+      pickupLat: true,
+      pickupLng: true,
+      cityId: true,
+      provinceId: true,
+      rejectAttempts: true,
+      rejectedProfessionalIds: true,
+      paymentModality: true,
+    }
+  });
+
+  if (!service || service.status !== 'OFFERED') {
+    return { reassigned: false as const, reason: 'not_offered' as const };
+  }
+
+  if (
+    service.pickupLat == null ||
+    service.pickupLng == null ||
+    service.cityId == null ||
+    service.provinceId == null
+  ) {
+    return { reassigned: false as const, reason: 'invalid_location' as const };
+  }
+
+  const excludeId = service.professionalId;
+  const newRejectAttempts = (service.rejectAttempts || 0) + 1;
+  const updatedRejectedIds = excludeId
+    ? [...(service.rejectedProfessionalIds || []), excludeId]
+    : (service.rejectedProfessionalIds || []);
+
+  await prisma.service.update({
+    where: { id: serviceId },
+    data: {
+      status: 'REJECTED',
+      professionalId: null,
+      rejectAttempts: newRejectAttempts,
+      rejectedProfessionalIds: updatedRejectedIds,
+      lastRejectAt: new Date(),
+    }
+  });
+
+  if (options.explicitRejectBy) {
+    await prisma.professional.update({
+      where: { id: options.explicitRejectBy },
+      data: { rejectCount: { increment: 1 }, lastRejectAt: new Date() }
+    });
+  }
+
+  if (newRejectAttempts >= MAX_REJECT_ATTEMPTS) {
+    await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
+    return { reassigned: false as const, reason: 'max_attempts' as const };
+  }
+
+  let candidates = await findNearestProfessional(prisma, {
+    pickupLat: service.pickupLat,
+    pickupLng: service.pickupLng,
+    type: service.type,
+    cityId: service.cityId,
+    provinceId: service.provinceId,
+    excludeProfessionalIds: updatedRejectedIds,
+    limit: 5,
+  });
+
+  if (service.paymentModality && candidates.length) {
+    const withModality = await prisma.professional.findMany({
+      where: {
+        id: { in: candidates.map((c: any) => c.id) },
+        modalities: { has: service.paymentModality },
+      },
+      select: { id: true },
+    });
+    const eligibleIds = new Set(withModality.map((p) => p.id));
+    candidates = candidates.filter((c: any) => eligibleIds.has(c.id));
+  }
+
+  if (candidates.length === 0) {
+    await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
+    return { reassigned: false as const, reason: 'no_candidates' as const };
+  }
+
+  let assigned: any = null;
+  for (const candidate of candidates) {
+    try {
+      await prisma.service.update({
+        where: { id: serviceId },
+        data: { professionalId: candidate.id, status: 'OFFERED', offeredAt: new Date() },
+      });
+      assigned = candidate;
+      break;
+    } catch (error: any) {
+      if (error.code === 'P2002') continue;
+      throw error;
+    }
+  }
+
+  if (!assigned) {
+    await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
+    return { reassigned: false as const, reason: 'all_taken' as const };
+  }
+
+  return { reassigned: true as const, professional: assigned };
+}
 // ==================== CONFIG DE MATCHING (compartida) ====================
 const MAX_DISTANCE_KM = 10; // criterio único de negocio para request y reject
+
 
 // ==================== HELPER: buscar profesional más cercano ====================
 async function findNearestProfessional(
@@ -839,6 +954,7 @@ async function findNearestProfessional(
       AND p.profession = $3
       AND p."cityId" = $4
       AND p."provinceId" = $5
+      AND p."lastLocationAt" > NOW() - INTERVAL '2 minutes'
       AND ST_DWithin(
         p."lastLocation"::geography,
         ST_MakePoint($2, $1)::geography,
@@ -869,7 +985,6 @@ async function findNearestProfessional(
 // HU-09: Rechazar oferta + fallback con memoria de rechazos
 app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-  const MAX_REJECT_ATTEMPTS = 5;
 
   try {
     if (req.dbUser.role !== 'PROFESSIONAL') {
@@ -886,22 +1001,20 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
       where: { id: serviceId },
       select: {
         id: true,
-        type: true,
-        status: true,
         professionalId: true,
+        status: true,
         pickupLat: true,
         pickupLng: true,
         cityId: true,
         provinceId: true,
-        rejectAttempts: true,
-        rejectedProfessionalIds: true,
       }
     });
 
     if (!service || service.professionalId !== professional.id || service.status !== 'OFFERED') {
       return res.status(403).json({ error: 'No puedes rechazar este servicio' });
     }
-     if (
+
+    if (
       service.pickupLat == null ||
       service.pickupLng == null ||
       service.cityId == null ||
@@ -909,104 +1022,32 @@ app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any
     ) {
       return res.status(500).json({ error: 'El servicio tiene datos de ubicación incompletos' });
     }
-    const newRejectAttempts = (service.rejectAttempts || 0) + 1;
-    const updatedRejectedIds = [...(service.rejectedProfessionalIds || []), professional.id];
 
-    // Marcar rechazo y acumular al profesional en la lista de excluidos
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: { 
-        status: 'REJECTED', 
-        professionalId: null,
-        rejectAttempts: newRejectAttempts,
-        rejectedProfessionalIds: updatedRejectedIds,
-        lastRejectAt: new Date()
-      }
-    });
+    const result = await reassignService(prisma, serviceId, { explicitRejectBy: professional.id });
 
-    await prisma.professional.update({
-      where: { id: professional.id },
-      data: {
-        rejectCount: { increment: 1 },
-        lastRejectAt: new Date(),
-      }
-    });
-
-    // Límite de rechazos alcanzado → a cola, igual que /request cuando no hay match
-    if (newRejectAttempts >= MAX_REJECT_ATTEMPTS) {
-      await prisma.service.update({
-        where: { id: serviceId },
-        data: { status: 'WAITING' }
-      });
-
-      return res.json({ 
-        message: 'Oferta rechazada. Se alcanzó el límite de intentos, servicio puesto en cola.',
-        status: 'WAITING'
-      });
-    }
-
-    // Buscar siguiente profesional, excluyendo a todos los que ya rechazaron
-    const candidates = await findNearestProfessional(prisma, {
-      pickupLat: service.pickupLat,
-      pickupLng: service.pickupLng,
-      type: service.type,
-      cityId: service.cityId,
-      provinceId: service.provinceId,
-      excludeProfessionalIds: updatedRejectedIds,
-      limit: 5,
-    });
-
-    if (candidates.length === 0) {
-      await prisma.service.update({
-        where: { id: serviceId },
-        data: { status: 'WAITING' }
-      });
-
-      return res.json({ 
-        message: 'Oferta rechazada. No hay más profesionales cercanos, servicio puesto en cola.',
-        status: 'WAITING'
-      });
-    }
-
-    // Intenta asignar en orden de cercanía; si otro proceso concurrente
-    // (otro reject, u otro /request) ya tomó a un candidato, el constraint
-    // único de la DB lo rechaza (P2002) y probamos con el siguiente.
-    let assigned: any = null;
-    for (const candidate of candidates) {
-      try {
-        await prisma.service.update({
-          where: { id: serviceId },
-          data: { professionalId: candidate.id, status: 'OFFERED' },
-        });
-        assigned = candidate;
-        break;
-      } catch (error: any) {
-        if (error.code === 'P2002') {
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    if (!assigned) {
-      await prisma.service.update({
-        where: { id: serviceId },
-        data: { status: 'WAITING' }
-      });
-
+    if (result.reassigned) {
+      const distanceKm = parseFloat(result.professional.distanceKm).toFixed(2);
       return res.json({
-        message: 'Oferta rechazada. Todos los profesionales cercanos fueron tomados por otras solicitudes, servicio puesto en cola.',
-        status: 'WAITING'
+        message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
+        nextProfessionalId: result.professional.id,
+        nextProfessionalName: result.professional.fullName,
+        distanceKm
       });
     }
 
-    const distanceKm = parseFloat(assigned.distanceKm).toFixed(2);
+   if (result.reason === 'invalid_location') {
+      return res.status(500).json({ error: 'El servicio tiene datos de ubicación incompletos' });
+    }
 
-    res.json({
-      message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
-      nextProfessionalId: assigned.id,
-      nextProfessionalName: assigned.fullName,
-      distanceKm
+    const messages: Record<string, string> = {
+      max_attempts: 'Oferta rechazada. Se alcanzó el límite de intentos, servicio puesto en cola.',
+      no_candidates: 'Oferta rechazada. No hay más profesionales cercanos, servicio puesto en cola.',
+      all_taken: 'Oferta rechazada. Todos los profesionales cercanos fueron tomados por otras solicitudes, servicio puesto en cola.',
+    };
+
+    return res.json({
+      message: messages[result.reason as string] || 'Servicio puesto en cola.',
+      status: 'WAITING'
     });
 
   } catch (error: any) {
@@ -1392,6 +1433,7 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
     await prisma.$executeRawUnsafe(`
       UPDATE "professionals"
       SET "lastLocation" = ST_MakePoint(${lng}, ${lat})::geography,
+          "lastLocationAt" = NOW(),
           "updatedAt" = NOW()
       WHERE "userId" = $1
     `, req.user.id);
@@ -3172,6 +3214,29 @@ function buildCardFormHtml(publicKey: string) {
 </body>
 </html>`;
 }
+
+const OFFER_TIMEOUT_MS = 45_000; // 45s para que el profesional responda
+const OFFER_CHECK_INTERVAL_MS = 15_000; // cada cuánto revisamos ofertas vencidas
+
+setInterval(async () => {
+  try {
+    const cutoff = new Date(Date.now() - OFFER_TIMEOUT_MS);
+    const expired = await prisma.service.findMany({
+      where: { status: 'OFFERED', offeredAt: { lt: cutoff } },
+      select: { id: true },
+    });
+
+    for (const service of expired) {
+      const result = await reassignService(prisma, service.id);
+      console.log(
+        `⏱️ [OFFER TIMEOUT] Servicio ${service.id}:`,
+        result.reassigned ? `reasignado a ${result.professional.fullName}` : result.reason
+      );
+    }
+  } catch (error) {
+    console.error('💥 [OFFER TIMEOUT] Error en el job:', error);
+  }
+}, OFFER_CHECK_INTERVAL_MS);
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
