@@ -2189,16 +2189,30 @@ app.get('/professions/available', async (req: any, res: any) => {
         status: 'APPROVED'
       },
       select: {
-        profession: true
+        profession: true,
+        modalities: true
       }
     });
 
-    // Obtener profesiones únicas
-    const uniqueProfessions = [...new Set(professionals.map(p => p.profession))];
+    const modalitiesByProfession = new Map<string, Set<string>>();
 
-    res.json({
-      professions: uniqueProfessions.sort()
-    });
+    for (const p of professionals) {
+      if (!modalitiesByProfession.has(p.profession)) {
+        modalitiesByProfession.set(p.profession, new Set());
+      }
+      const set = modalitiesByProfession.get(p.profession)!;
+      const mods = Array.isArray(p.modalities) ? p.modalities : [p.modalities];
+      mods.forEach((m: any) => m && set.add(m));
+    }
+
+    const professions = Array.from(modalitiesByProfession.entries())
+      .map(([key, modalities]) => ({
+        key,
+        modalities: Array.from(modalities),
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    res.json({ professions });
 
   } catch (error: any) {
     console.error('Error al obtener profesiones disponibles:', error);

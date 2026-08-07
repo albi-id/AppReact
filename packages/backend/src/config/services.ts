@@ -34,7 +34,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     pricePerMinute: 62.2286,
     basePrice: 622.29,
    },
-
+ 
     {
     key: 'Ingeniero/a',
     label: 'Ingeniero/a',
@@ -48,6 +48,12 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   basePrice: 0,                   
   pricePerMinute: 0,              
 },
+{
+    key: 'Electricista',
+     label: 'Electricista',
+    pricePerMinute: 0,
+    basePrice: 0,
+   },
 
 {
   key: 'Jardinero/a',           // por presupuesto por eso pongo 0
