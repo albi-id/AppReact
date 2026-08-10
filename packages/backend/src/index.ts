@@ -245,6 +245,10 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
         processing_mode: 'automatic',
         external_reference: service.id,
         total_amount: String(totalToCharge),
+        marketplace_fee: String(platformFee),
+        integration_data: {
+          sponsor: { id: process.env.MP_PLATFORM_USER_ID },
+        },
         payer: { customer_id: paymentMethod.mpCustomerId },
         transactions: {
           payments: [{
