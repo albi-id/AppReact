@@ -228,9 +228,9 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
     return { success: false, reason: 'no_professional' as const };
   }
 
-
   const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
 
+  let order: any;
   try {
     const orderRes = await axios.post(
       `${MP_API}/v1/orders`,
@@ -239,10 +239,6 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
         processing_mode: 'automatic',
         external_reference: service.id,
         total_amount: String(totalToCharge),
-        marketplace_fee: String(platformFee),
-        integration_data: {
-          sponsor: { id: process.env.MP_PLATFORM_USER_ID },
-        },
         payer: { customer_id: paymentMethod.mpCustomerId },
         transactions: {
           payments: [{
@@ -263,26 +259,31 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
         },
       }
     );
-
-    const order = orderRes.data;
-    const payment = order.transactions?.payments?.[0];
-    const status = mapPaymentStatus(payment?.status);
-
-    await prisma.service.update({
-      where: { id: service.id },
-      data: {
-        mpPaymentId: payment ? String(payment.id) : null,
-        paymentStatus: status as any,
-        platformFee, mpFeeEstimate, totalCharged: totalToCharge,
-        paidAt: status === 'approved' ? new Date() : null,
-      },
-    });
-
-    return { success: status === 'approved', status: payment?.status, statusDetail: payment?.status_detail };
+    order = orderRes.data;
   } catch (error: any) {
-    console.error(`💥 Error cobrando con token servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
-    return { success: false, reason: 'mp_error' as const };
+    // Mercado Pago devuelve 402 cuando el pago es rechazado, pero igual
+    // manda el detalle completo de la order/payment en el body del error.
+    order = error.response?.data?.data;
+    if (!order) {
+      console.error(`💥 Error cobrando con token servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
+      return { success: false, reason: 'mp_error' as const };
+    }
   }
+
+  const payment = order.transactions?.payments?.[0];
+  const status = mapPaymentStatus(payment?.status);
+
+  await prisma.service.update({
+    where: { id: service.id },
+    data: {
+      mpPaymentId: payment ? String(payment.id) : null,
+      paymentStatus: status as any,
+      platformFee, mpFeeEstimate, totalCharged: totalToCharge,
+      paidAt: status === 'approved' ? new Date() : null,
+    },
+  });
+
+  return { success: status === 'approved', status: payment?.status, statusDetail: payment?.status_detail };
 }
  
 
