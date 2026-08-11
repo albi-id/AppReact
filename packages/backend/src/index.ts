@@ -243,7 +243,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
         items: [{
           title: `Servicio de ${service.type}`,
           quantity: 1,
-          unit_price: String(totalToCharge),
+          unit_price: totalToCharge,
         }],
         payer: { customer_id: paymentMethod.mpCustomerId },
         transactions: {
@@ -254,7 +254,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
               type: 'credit_card',
               token: cardToken,
               installments: 1,
-              statement_descriptor: 'NEOS',
+              statement_descriptor: 'NEXOS SERVICIOS',
             },
           }],
         },
@@ -3027,8 +3027,13 @@ app.post('/webhooks/mercadopago', async (req, res) => {
       return res.sendStatus(401);
     }
 
-   const orderId = (req.query['data.id'] as string) || req.body?.data?.id;
-    if (!orderId) return res.sendStatus(200);
+    const orderId = (req.query['data.id'] as string) || req.body?.data?.id;
+    console.log('📩 [WEBHOOK] Notificación recibida, orderId:', orderId);
+
+    if (!orderId) {
+      console.log('⚠️ [WEBHOOK] Sin orderId en la notificación, ignorando');
+      return res.sendStatus(200);
+    }
 
     const { data: order } = await axios.get(`${MP_API}/v1/orders/${orderId}`,
       { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
@@ -3041,9 +3046,13 @@ app.post('/webhooks/mercadopago', async (req, res) => {
         where: { id: order.external_reference },
         data: { mpPaymentId: String(payment.id), paymentStatus: status as any, paidAt: status === 'approved' ? new Date() : null },
       });
+      console.log(`✅ [WEBHOOK] Servicio ${order.external_reference} actualizado a status: ${status}`);
+    } else {
+      console.log('⚠️ [WEBHOOK] Order sin external_reference o sin payment:', order.id);
     }
     res.sendStatus(200);
-  } catch {
+  } catch (error: any) {
+    console.error('💥 [WEBHOOK] Error procesando notificación:', error.response?.data || error.message);
     res.sendStatus(200);
   }
 });
