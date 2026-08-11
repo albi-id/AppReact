@@ -2998,7 +2998,8 @@ function validateWebhookSignature(req: any): boolean {
   console.log('🔐 [WEBHOOK SIGNATURE] dataId extraído:', dataId);
   console.log('🔐 [WEBHOOK SIGNATURE] x-signature header:', xSignature);
   console.log('🔐 [WEBHOOK SIGNATURE] x-request-id header:', xRequestId);
-  console.log('🔐 [WEBHOOK SIGNATURE] secret cargado:', !!secret);
+  console.log('🔐 [WEBHOOK SIGNATURE] secret cargado, longitud:', secret?.length);
+  console.log('🔐 [WEBHOOK SIGNATURE] secret entre comillas (para ver espacios):', JSON.stringify(secret));
 
   if (!xSignature || !secret) {
     console.log('🔐 [WEBHOOK SIGNATURE] Falta xSignature o secret, rechazando');
