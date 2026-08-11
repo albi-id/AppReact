@@ -2994,7 +2994,16 @@ function validateWebhookSignature(req: any): boolean {
   const dataId = ((req.query['data.id'] as string) || '').toLowerCase();
   const secret = process.env.MP_WEBHOOK_SECRET as string;
 
-  if (!xSignature || !secret) return false;
+  console.log('🔐 [WEBHOOK SIGNATURE] query completo:', JSON.stringify(req.query));
+  console.log('🔐 [WEBHOOK SIGNATURE] dataId extraído:', dataId);
+  console.log('🔐 [WEBHOOK SIGNATURE] x-signature header:', xSignature);
+  console.log('🔐 [WEBHOOK SIGNATURE] x-request-id header:', xRequestId);
+  console.log('🔐 [WEBHOOK SIGNATURE] secret cargado:', !!secret);
+
+  if (!xSignature || !secret) {
+    console.log('🔐 [WEBHOOK SIGNATURE] Falta xSignature o secret, rechazando');
+    return false;
+  }
 
   let ts: string | undefined;
   let hash: string | undefined;
@@ -3003,7 +3012,10 @@ function validateWebhookSignature(req: any): boolean {
     if (key?.trim() === 'ts') ts = val?.trim();
     if (key?.trim() === 'v1') hash = val?.trim();
   }
-  if (!ts || !hash) return false;
+  if (!ts || !hash) {
+    console.log('🔐 [WEBHOOK SIGNATURE] No se pudo extraer ts/hash del header');
+    return false;
+  }
 
   const parts: string[] = [];
   if (dataId) parts.push(`id:${dataId}`);
@@ -3011,11 +3023,17 @@ function validateWebhookSignature(req: any): boolean {
   parts.push(`ts:${ts}`);
   const manifest = parts.join(';') + ';';
 
+  console.log('🔐 [WEBHOOK SIGNATURE] manifest construido:', manifest);
+
   const computed = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+
+  console.log('🔐 [WEBHOOK SIGNATURE] hash calculado:', computed);
+  console.log('🔐 [WEBHOOK SIGNATURE] hash recibido:  ', hash);
 
   try {
     return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
   } catch {
+    console.log('🔐 [WEBHOOK SIGNATURE] Error en timingSafeEqual (probablemente largos distintos)');
     return false;
   }
 }
