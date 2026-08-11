@@ -151,6 +151,8 @@ model Service {
   paymentStatus PaymentStatus?
   paymentModality Modality?
   offeredAt       DateTime?
+  payoutStatus String?   @default("PENDING") // PENDING | PAID
+  payoutAt     DateTime?
   @@map("services")
   @@index([requesterId, status])
   @@index([professionalId, status])
