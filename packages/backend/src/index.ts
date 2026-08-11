@@ -221,6 +221,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
   const paymentMethod = await prisma.paymentMethod.findUnique({
     where: { userId: service.requesterId },
   });
+  const user = await prisma.user.findUnique({ where: { id: service.requesterId } });
   if (!paymentMethod) {
     return { success: false, reason: 'no_payment_method' as const };
   }
@@ -239,7 +240,13 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
         processing_mode: 'automatic',
         external_reference: service.id,
         total_amount: String(totalToCharge),
-        payer: { customer_id: paymentMethod.mpCustomerId },
+        notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
+        items: [{
+          title: `Servicio de ${service.type}`,
+          quantity: 1,
+          unit_price: String(totalToCharge),
+        }],
+        payer: { customer_id: paymentMethod.mpCustomerId, email: user!.email },
         transactions: {
           payments: [{
             amount: String(totalToCharge),
@@ -248,6 +255,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
               type: 'credit_card',
               token: cardToken,
               installments: 1,
+              statement_descriptor: 'NEOS',
             },
           }],
         },
@@ -295,6 +303,7 @@ function mapPaymentStatus(mpStatus: string | undefined): string {
     case 'failed':
       return 'rejected';
     case 'action_required':
+    case 'in_review':
       return 'pending';
     case 'in_process':
       return 'in_process';
