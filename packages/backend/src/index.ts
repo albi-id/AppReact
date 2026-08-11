@@ -287,9 +287,19 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
 }
  
 
-const SUPPORTED_PAYMENT_STATUSES = ['pending', 'approved', 'rejected', 'in_process'] as const;
-function mapPaymentStatus(mpStatus: string) {
-  return (SUPPORTED_PAYMENT_STATUSES as readonly string[]).includes(mpStatus) ? mpStatus : 'pending';
+function mapPaymentStatus(mpStatus: string | undefined): string {
+  switch (mpStatus) {
+    case 'processed':
+      return 'approved';
+    case 'failed':
+      return 'rejected';
+    case 'action_required':
+      return 'pending';
+    case 'in_process':
+      return 'in_process';
+    default:
+      return 'pending';
+  }
 }
 
 // ==================== RUTAS CRÍTICAS ====================
