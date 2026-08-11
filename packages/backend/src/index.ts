@@ -271,8 +271,9 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
   }
 
   const payment = order.transactions?.payments?.[0];
+  console.log('🔍 [CHARGE] payment.status crudo de MP:', payment?.status, '| status_detail:', payment?.status_detail);
   const status = mapPaymentStatus(payment?.status);
-
+  
   await prisma.service.update({
     where: { id: service.id },
     data: {
