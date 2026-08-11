@@ -240,7 +240,6 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
         processing_mode: 'automatic',
         external_reference: service.id,
         total_amount: String(totalToCharge),
-        notification_url: `${process.env.BACKEND_URL}/webhooks/mercadopago`,
         items: [{
           title: `Servicio de ${service.type}`,
           quantity: 1,
