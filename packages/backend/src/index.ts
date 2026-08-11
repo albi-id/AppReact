@@ -228,12 +228,6 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
     return { success: false, reason: 'no_professional' as const };
   }
 
-  let professionalAccessToken: string;
-  try {
-    professionalAccessToken = await ensureValidProfessionalToken(service.professionalId);
-  } catch {
-    return { success: false, reason: 'professional_not_linked' as const };
-  }
 
   const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
 
@@ -264,7 +258,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
       },
       {
         headers: {
-          Authorization: `Bearer ${professionalAccessToken}`,
+          Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
           'X-Idempotency-Key': `charge-${service.id}-${Date.now()}`,
         },
       }
@@ -3241,6 +3235,20 @@ setInterval(async () => {
     console.error('💥 [OFFER TIMEOUT] Error en el job:', error);
   }
 }, OFFER_CHECK_INTERVAL_MS);
+
+
+app.get('/services/:id/payment-breakdown', authenticate, async (req: any, res: any) => {
+  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+  if (!service || service.requesterId !== req.user.id) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+  if (!service.amount) {
+    return res.status(400).json({ error: 'Todavía no hay un monto definido' });
+  }
+  const breakdown = calculateChargeAmount(service.amount);
+  res.json(breakdown);
+});
+
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
