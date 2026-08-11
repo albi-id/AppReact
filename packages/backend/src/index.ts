@@ -338,6 +338,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         s."paidAt",
         s."proposedAmount",
         s."amountProposedAt",
+        s."paymentModality",
         p.id as "professionalId",
         p."fullName",
         p.profession,
@@ -375,6 +376,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       paidAt: service.paidAt,
       proposedAmount: service.proposedAmount,
       amountProposedAt: service.amountProposedAt,
+      paymentModality: service.paymentModality,
       
       professional: service.professionalId ? {
         id: service.professionalId,
@@ -462,6 +464,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         s."paidAt",
         s."proposedAmount",
         s."amountProposedAt",
+        s."paymentModality",
         r.id as "requesterId",
         r."firstName",
         r."lastName",
@@ -534,6 +537,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         paidAt: service.paidAt,
         proposedAmount: service.proposedAmount,
         amountProposedAt: service.amountProposedAt,
+        paymentModality: service.paymentModality,
         pickupLat: service.pickupLat,
         pickupLng: service.pickupLng,
 
@@ -1142,10 +1146,7 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
     }
 
     // ==================== DETECCIÓN DE TIPO DE SERVICIO ====================
-    const serviceConfig = SERVICE_TYPES.find(s => s.key === service.type);
-    const isFixedPrice = serviceConfig && 
-                        serviceConfig.pricePerMinute === 0 && 
-                        serviceConfig.basePrice === 0;
+    const isFixedPrice = service.paymentModality === 'FIXED_PRICE';
 
     // ====================== SERVICIO POR PRESUPUESTO ======================
     if (isFixedPrice) {
@@ -1524,6 +1525,7 @@ let newService;
           provinceId,
           status: 'REQUESTED',
           requestedAt: new Date(),
+          paymentModality: paymentModality || null,
         },
       });
     } catch (error: any) {
