@@ -360,6 +360,8 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         s."proposedAmount",
         s."amountProposedAt",
         s."paymentModality",
+        s."paymentStatus",
+        s."totalCharged",
         p.id as "professionalId",
         p."fullName",
         p.profession,
@@ -398,6 +400,8 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       proposedAmount: service.proposedAmount,
       amountProposedAt: service.amountProposedAt,
       paymentModality: service.paymentModality,
+      paymentStatus: service.paymentStatus,
+      totalCharged: service.totalCharged,
       
       professional: service.professionalId ? {
         id: service.professionalId,
@@ -1490,13 +1494,16 @@ app.post('/services/request', authenticate, async (req: any, res: any) => {
     const activeService = await prisma.service.findFirst({
       where: { 
         requesterId: req.user.id,
-        status: { in: ['REQUESTED', 'OFFERED', 'ACCEPTED', 'ARRIVED'] }
+        OR: [
+          { status: { in: ['REQUESTED', 'OFFERED', 'ACCEPTED', 'ARRIVED'] } },
+          { status: 'COMPLETED', amount: { gt: 0 }, paymentStatus: { not: 'approved' } },
+        ],
       }
     });
 
     if (activeService) {
       return res.status(409).json({ 
-        error: 'Ya tienes un servicio activo. Debes finalizar o cancelar el actual antes de solicitar uno nuevo.' 
+        error: 'Tenés un servicio pendiente de pago. Completá el pago antes de solicitar uno nuevo.' 
       });
     }
 
