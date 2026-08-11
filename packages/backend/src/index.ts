@@ -244,7 +244,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
         items: [{
           title: `Servicio de ${service.type}`,
           quantity: 1,
-          unit_price: totalToCharge,
+          unit_price: String(totalToCharge),
         }],
         payer: { customer_id: paymentMethod.mpCustomerId },
         transactions: {
