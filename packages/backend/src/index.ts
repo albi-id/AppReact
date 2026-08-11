@@ -215,20 +215,21 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
 
   if (!service || !service.amount || service.paidAt) {
+    console.log('🚫 [CHARGE] not_chargeable →', { existe: !!service, amount: service?.amount, paidAt: service?.paidAt });
     return { success: false, reason: 'not_chargeable' as const };
   }
 
   const paymentMethod = await prisma.paymentMethod.findUnique({
     where: { userId: service.requesterId },
   });
-  const user = await prisma.user.findUnique({ where: { id: service.requesterId } });
   if (!paymentMethod) {
+    console.log('🚫 [CHARGE] no_payment_method → requesterId:', service.requesterId);
     return { success: false, reason: 'no_payment_method' as const };
   }
   if (!service.professionalId) {
+    console.log('🚫 [CHARGE] no_professional → serviceId:', service.id);
     return { success: false, reason: 'no_professional' as const };
   }
-
   const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
 
   let order: any;
