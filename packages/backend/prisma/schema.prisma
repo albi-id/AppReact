@@ -156,6 +156,8 @@ model Service {
   @@map("services")
   @@index([requesterId, status])
   @@index([professionalId, status])
+  @@index([requesterId, requestedAt(sort: Desc)])
+  @@index([professionalId, requestedAt(sort: Desc)])
   @@index([pickupLocation], type: Gist)   
   @@index([provinceId, cityId])
   
@@ -174,6 +176,7 @@ model Message {
   @@index([serviceId])
   @@index([senderId])
   @@index([receiverId])
+  @@index([serviceId, createdAt]) 
 }
 model Province {
   id String @id @default(cuid())

@@ -5,8 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import 'dotenv/config';
 import cors from 'cors';
 import axios from 'axios';
-import { SERVICE_TYPES, getServiceConfig } from './config/services';  
-import rateLimit from 'express-rate-limit';
+import { getServiceConfig } from './config/services';  
 import path from 'path';
 import crypto from 'crypto';
  
@@ -327,7 +326,7 @@ app.get('/users/me', authenticate, async (req: any, res: any) => {
       lastName: true,
       photoUrl: true,
       address: true,
-      cityId: true,        // ← Agregar
+      cityId: true,       
       provinceId: true,
     }
   });
@@ -377,7 +376,8 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       FROM "services" s
       LEFT JOIN "professionals" p ON p.id = s."professionalId"
       WHERE s."requesterId" = $1
-      ORDER BY s."requestedAt" DESC;
+      ORDER BY s."requestedAt" DESC
+      LIMIT 50;
     `, req.user.id);
 
     const formattedServices = services.map((service: any) => ({
@@ -506,45 +506,11 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
       LEFT JOIN "professionals" p ON p.id = s."professionalId"
       WHERE s."professionalId" = $1
         AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED')
-      ORDER BY s."requestedAt" DESC;
+      ORDER BY s."requestedAt" DESC
+      LIMIT 50;
     `, professional.id);
 
-/*    // Formateo manteniendo la misma estructura que tenías
-    const formattedServices = services.map((service: any) => {
-      const distanceKm = service.distanceKm 
-        ? parseFloat(service.distanceKm).toFixed(2) 
-        : "0.00";
-
-      return {
-        ...service,
-        requester: service.requesterId ? {
-          id: service.requesterId,
-          firstName: service.firstName,
-          lastName: service.lastName,
-          email: service.email,
-          fullName: [service.firstName, service.lastName]
-            .filter(Boolean)
-            .join(' ')
-            .trim() || 'Usuario'
-        } : null,
-        distanceKm: Number(distanceKm),
-      };
-    });
-
-    console.log(`📋 [PROFESSIONAL/MY] Profesional ${professional.fullName} → ${services.length} servicios`);
-
-    res.json({
-      message: 'Mis servicios como profesional',
-      services: formattedServices,
-      professional: {
-        id: professional.id,
-        fullName: professional.fullName,
-        profession: professional.profession
-      }
-    });
-*/
-
-        // Formateo manteniendo la misma estructura que tenías
+        // Formateo 
     const formattedServices = services.map((service: any) => {
       const distanceKm = service.distanceKm 
         ? parseFloat(service.distanceKm).toFixed(2) 
@@ -575,7 +541,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
 
         distanceKm: Number(distanceKm),
 
-        // === ESTRUCTURA DEL REQUESTER (mantener exactamente como estaba) ===
+        // === ESTRUCTURA DEL REQUESTER ===
         requester: service.requesterId ? {
           id: service.requesterId,
           firstName: service.firstName,
@@ -634,7 +600,6 @@ app.post('/driver/profile', authenticate, async (req: any, res: any) => {
       },
     });
 
-    // Cambiar rol a USER (ya no usamos DRIVER)
     await prisma.user.update({
       where: { id: req.user.id },
       data: { role: 'USER' }
@@ -705,126 +670,6 @@ app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any
     res.status(500).json({ error: 'Error interno al aceptar el servicio' });
   }
 });
-
-/*
-// HU-09: Rechazar oferta + fallback automático (OPTIMIZADO CON GIST)
-app.patch('/services/:serviceId/reject', authenticate, async (req: any, res: any) => {
-  const { serviceId } = req.params;
-
-  try {
-    if (req.dbUser.role !== 'PROFESSIONAL') {
-      return res.status(403).json({ error: 'Solo profesionales pueden rechazar' });
-    }
-
-    const professional = await prisma.professional.findUnique({
-      where: { userId: req.user.id }
-    });
-
-    if (!professional) {
-      return res.status(404).json({ error: 'Perfil profesional no encontrado' });
-    }
-
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      select: {
-        id: true,
-        type: true,
-        status: true,
-        professionalId: true,
-        pickupLat: true,
-        pickupLng: true,
-        cityId: true,
-        provinceId: true
-      }
-    });
-
-    if (!service || service.professionalId !== professional.id || service.status !== 'OFFERED') {
-      return res.status(403).json({ error: 'No puedes rechazar este servicio' });
-    }
-
-    console.log(`🔄 [REJECT] Servicio ${serviceId} rechazado por ${professional.fullName}`);
-
-    // Marcar como rechazado
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: { 
-        status: 'REJECTED', 
-        professionalId: null 
-      }
-    });
-
-    await prisma.professional.update({
-      where: { id: professional.id },
-      data: {
-        rejectCount: { increment: 1 },
-        lastRejectAt: new Date(),
-      }
-    });
-
-    const MAX_DISTANCE_METERS = 15000; // 15 km
-
-    // ==================== CONSULTA OPTIMIZADA CON GIST ====================
-    const candidates = await prisma.$queryRawUnsafe<any[]>(`
-      SELECT 
-        p.id,
-        p."fullName",
-        p.profession,
-        p.rating,
-        p."lastLocation",
-        ST_Distance(
-          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
-          p."lastLocation"::geography
-        ) / 1000 as "distanceKm"
-      FROM "professionals" p
-      WHERE p."isActive" = true 
-        AND p.status = 'APPROVED'
-        AND p.profession = ${service.type ? `'${service.type}'` : 'p.profession'}
-        AND p.cityId = ${service.cityId}
-        AND p.provinceId = ${service.provinceId}
-        AND p.id != ${professional.id}
-        AND ST_DWithin(
-          p."lastLocation"::geography,
-          ST_MakePoint(${service.pickupLng}::float, ${service.pickupLat}::float)::geography,
-          ${MAX_DISTANCE_METERS}
-        )
-      ORDER BY "distanceKm" ASC
-      LIMIT 5;
-    `);
-
-    if (candidates.length === 0) {
-      console.log(`⚠️ [REJECT] No hay más profesionales cercanos`);
-      return res.json({ 
-        message: `Oferta rechazada. No hay más profesionales disponibles cerca.` 
-      });
-    }
-
-    const next = candidates[0];
-    const distanceKm = parseFloat(next.distanceKm).toFixed(2);
-
-    // Reasignar
-    await prisma.service.update({
-      where: { id: serviceId },
-      data: { 
-        professionalId: next.id, 
-        status: 'OFFERED' 
-      }
-    });
-
-    console.log(`✅ [REASSIGN] Reasignado a ${next.fullName} - ${distanceKm} km`);
-
-    res.json({
-      message: 'Oferta rechazada. Asignada al siguiente profesional más cercano.',
-      nextProfessionalId: next.id,
-      nextProfessionalName: next.fullName,
-      distanceKm: distanceKm
-    });
-
-  } catch (error: any) {
-    console.error('💥 Error al rechazar servicio:', error);
-    res.status(500).json({ error: 'Error interno al rechazar el servicio' });
-  }
-});
-*/
 
 const MAX_REJECT_ATTEMPTS = 5;
 
@@ -2334,9 +2179,12 @@ app.get('/provinces', async (req: any, res: any) => {
 // Obtener ciudades por provincia
 app.get('/cities', async (req: any, res: any) => {
   const { provinceId } = req.query;
+  if (!provinceId) {
+    return res.status(400).json({ error: 'provinceId es requerido' });
+  }
   try {
     const cities = await prisma.city.findMany({
-      where: { provinceId },
+      where: { provinceId: provinceId as string },
       orderBy: { name: 'asc' }
     });
     res.json({ cities });
@@ -2344,46 +2192,6 @@ app.get('/cities', async (req: any, res: any) => {
     res.status(500).json({ error: 'Error al cargar ciudades' });
   }
 });
-
-// Crear un nuevo servicio
-/*
-app.post('/services/create', authenticate, async (req: any, res: any) => {
-  const { professionalId, type } = req.body;
-  const userId = req.user.id;
-
-  try {
-
-    if (req.dbUser.role === 'PROFESSIONAL') {
-  const targetProfessionalId = req.body.professionalId; // o como lo estés recibiendo
-
-  const myProfile = await prisma.professional.findUnique({
-    where: { userId: req.user.id }
-  });
-
-  if (myProfile && myProfile.id === targetProfessionalId) {
-    return res.status(400).json({ 
-      error: 'No puedes enviarte un mensaje a ti mismo' 
-    });
-  }
-}
-
-    const service = await prisma.service.create({
-      data: {
-        requesterId: userId,
-        professionalId: professionalId,
-        type: type || 'Consulta General',
-        status: 'COMPLETED' // o 'active'
-      },
-      include: { professional: true }
-    });
-
-    res.status(201).json({ service });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error al crear servicio' });
-  }
-});
-*/
 
 
 // Encontrar o crear chat entre usuario y profesional
@@ -2553,50 +2361,6 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
   }
 });
 
-// Obtener TODOS los mensajes entre un usuario y un profesional (unificados)
-/*app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
-  const userId = req.user.id;
-  const { professionalId } = req.params;
-
-  try {
-    const services = await prisma.service.findMany({
-      where: {
-        OR: [
-          { requesterId: userId, professionalId: professionalId },
-          { requesterId: professionalId, professionalId: userId } // por si acaso
-        ]
-      },
-      select: { id: true }
-    });
-
-    const serviceIds = services.map(s => s.id);
-
-    if (serviceIds.length === 0) {
-      return res.json({ messages: [] });
-    }
-
-    const messages = await prisma.message.findMany({
-      where: {
-        serviceId: { in: serviceIds }
-      },
-      include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
-      },
-      orderBy: { createdAt: 'asc' }
-    });
-
-    console.log(`📨 Mensajes unificados: ${messages.length} entre ${userId} y ${professionalId}`);
-
-    res.json({ messages });
-
-  } catch (error) {
-    console.error('Error cargando mensajes unificados:', error);
-    res.status(500).json({ error: 'Error al cargar mensajes' });
-  }
-});
-*/
 app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
   const { professionalId: otherUserId } = req.params;
@@ -2620,10 +2384,11 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
     const messages = await prisma.message.findMany({
       where: { serviceId: { in: serviceIds } },
       include: { sender: { select: { id: true, firstName: true, lastName: true } } },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { createdAt: 'desc' },
+      take: 100,
     });
 
-    res.json({ messages });
+    res.json({ messages: messages.reverse() });
   } catch (error: any) {
     console.error('💥 Error unificado:', error);
     res.status(500).json({ error: 'Error al cargar historial' });
@@ -2661,66 +2426,6 @@ app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
     res.status(500).json({ error: error.message || 'Error interno' });
   }
 });
-
-/*
-// HU-34: Mensajes para profesional (versión simétrica y robusta)
-app.get('/chats/professional/:professionalId/messages', authenticate, async (req: any, res: any) => {
-  const userId = req.user.id;
-  const { professionalId } = req.params;
-
-  console.log(`📡 [CHATS/PROFESSIONAL] Professional: ${userId} | Other User: ${professionalId}`);
-
-  try {
-    if (req.dbUser.role !== 'PROFESSIONAL') {
-      return res.status(403).json({ error: 'Solo profesionales pueden usar este endpoint' });
-    }
-
-    // === VALIDACIÓN SELF-CHAT ===
-    if (userId === professionalId) {
-      console.log('🚫 Self-chat detectado, devolviendo vacío');
-      return res.json({ messages: [] });
-    }
-
-    const services = await prisma.service.findMany({
-      where: {
-        OR: [
-          { requesterId: userId, professional: { userId: professionalId } },
-          { requesterId: professionalId, professional: { userId: userId } },
-          { requesterId: userId, professionalId: professionalId },
-          { requesterId: professionalId, professionalId: userId }
-        ]
-      },
-      select: { id: true }
-    });
-
-    const serviceIds = services.map(s => s.id);
-
-    console.log(`🔍 Total services encontrados para profesional: ${services.length}`);
-
-    if (serviceIds.length === 0) {
-      return res.json({ messages: [] });
-    }
-
-    const messages = await prisma.message.findMany({
-      where: { serviceId: { in: serviceIds } },
-      include: {
-        sender: {
-          select: { id: true, firstName: true, lastName: true }
-        }
-      },
-      orderBy: { createdAt: 'asc' }
-    });
-
-    console.log(`✅ Mensajes cargados para profesional: ${messages.length}`);
-
-    res.json({ messages });
-
-  } catch (error: any) {
-    console.error('💥 Error en chats/professional:', error);
-    res.status(500).json({ error: 'Error al cargar historial' });
-  }
-});
-*/
 
 app.post('/reports', authenticate, async (req: any, res: any) => {
     const { reason, details, reportedProfessionalId, serviceId, platform } = req.body;
@@ -2780,9 +2485,6 @@ app.patch('/services/:id/cancel', authenticate, async (req: any, res: any) => {
   }
 });
 
-
-//para pagos
-/*
 app.post('/payments/link', authenticate, async (req, res) => {
   const { cardToken } = req.body;
   const userId = (req as any).user.id;
@@ -2793,77 +2495,6 @@ app.post('/payments/link', authenticate, async (req, res) => {
     let existing = await prisma.paymentMethod.findUnique({ where: { userId } });
     let mpCustomerId = existing?.mpCustomerId;
 
-    if (!mpCustomerId) {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  const customerRes = await axios.post(`${MP_API}/v1/customers`, {
-    email: user!.email,
-    first_name: user!.firstName,
-    last_name: user!.lastName,
-  }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
-  mpCustomerId = customerRes.data.id;
-}
-
-if (!mpCustomerId) {
-  throw new Error('No se pudo crear el customer de Mercado Pago');
-}
-
-    if (existing?.mpCardId) {
-      await axios.delete(`${MP_API}/v1/customers/${mpCustomerId}/cards/${existing.mpCardId}`,
-        { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }).catch(() => {});
-    }
-
-    const cardRes = await axios.post(`${MP_API}/v1/customers/${mpCustomerId}/cards`,
-      { token: cardToken }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
-    const card = cardRes.data;
-
-    const paymentMethod = await prisma.paymentMethod.upsert({
-      where: { userId },
-      update: {
-        mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
-        cardPaymentMethodId: card.payment_method?.id,
-        cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
-        cardExpYear: card.expiration_year, linkedAt: new Date(),
-      },
-      create: {
-        userId, mpCustomerId, mpCardId: card.id, cardBrand: card.payment_method?.name,
-        cardPaymentMethodId: card.payment_method?.id,
-        cardLastFour: card.last_four_digits, cardExpMonth: card.expiration_month,
-        cardExpYear: card.expiration_year,
-      },
-    });
-
-    res.json({ linked: true, cardLastFour: paymentMethod.cardLastFour, cardBrand: paymentMethod.cardBrand });
-  } catch (error: any) {
-    console.error('Error vinculando MP:', error.response?.data || error.message);
-    res.status(400).json({ error: 'No se pudo vincular la tarjeta. Verificá los datos e intentá de nuevo.' });
-  }
-});
-*/
-
-app.post('/payments/link', authenticate, async (req, res) => {
-  const { cardToken } = req.body;
-  const userId = (req as any).user.id;
-
-  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
-
-  try {
-    let existing = await prisma.paymentMethod.findUnique({ where: { userId } });
-    let mpCustomerId = existing?.mpCustomerId;
-
-    /*
-    if (!mpCustomerId) {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      console.log('🔵 [MP LINK] Creando customer para:', user!.email);
-
-      try {
-        const customerRes = await axios.post(`${MP_API}/v1/customers`, {
-          email: user!.email,
-          first_name: user!.firstName,
-          last_name: user!.lastName,
-        }, { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
-        mpCustomerId = customerRes.data.id;
-        console.log('✅ [MP LINK] Customer creado:', mpCustomerId);
-      } */
      if (!mpCustomerId) {
       const user = await prisma.user.findUnique({ where: { id: userId } });
       console.log('🔵 [MP LINK] Creando customer para:', user!.email);
@@ -2965,36 +2596,6 @@ app.delete('/payments/unlink', authenticate, async (req, res) => {
   await prisma.paymentMethod.delete({ where: { userId } });
   res.json({ unlinked: true });
 });
-
-/*
-app.post('/services/:id/charge', authenticate, async (req: any, res: any) => {
-  const userId = req.user.id;
-  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
-
-  if (!service || service.requesterId !== userId) {
-    return res.status(404).json({ error: 'No encontrado' });
-  }
-  if (service.status !== 'COMPLETED' || !service.amount) {
-    return res.status(400).json({ error: 'Todavía no hay monto a cobrar' });
-  }
-  if (service.paidAt) {
-    return res.status(400).json({ error: 'Ya fue pagado' });
-  }
-
-  const result = await chargeServiceAutomatically(req.params.id);
-
-  if (result.success) {
-    return res.json({ approved: true });
-  }
-
-  if (result.reason === 'no_payment_method') {
-    return res.status(400).json({ error: 'No tenés un método de pago vinculado' });
-  }
-
-  return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
-});
-
-*/
 
 function validateWebhookSignature(req: any): boolean {
   const xSignature = req.headers['x-signature'] as string;
