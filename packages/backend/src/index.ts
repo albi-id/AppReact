@@ -490,6 +490,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         s."proposedAmount",
         s."amountProposedAt",
         s."paymentModality",
+        s."paymentStatus",
         r.id as "requesterId",
         r."firstName",
         r."lastName",
@@ -529,6 +530,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         proposedAmount: service.proposedAmount,
         amountProposedAt: service.amountProposedAt,
         paymentModality: service.paymentModality,
+        paymentStatus: service.paymentStatus,
         pickupLat: service.pickupLat,
         pickupLng: service.pickupLng,
 
@@ -2908,6 +2910,16 @@ app.get('/services/:id/payment-breakdown', authenticate, async (req: any, res: a
   res.json(breakdown);
 });
 
+app.get('/professional/mercadopago-status', authenticate, async (req: any, res: any) => {
+  if (req.dbUser.role !== 'PROFESSIONAL') {
+    return res.status(403).json({ error: 'Solo profesionales' });
+  }
+  const professional = await prisma.professional.findUnique({
+    where: { userId: req.user.id },
+    select: { mpAccessToken: true },
+  });
+  res.json({ linked: !!professional?.mpAccessToken });
+});
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
