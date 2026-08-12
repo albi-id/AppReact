@@ -1669,7 +1669,8 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     dniFrontUrl, 
     dniBackUrl, 
     certificateUrl,
-    modalities 
+    modalities,
+    professionalTermsAccepted,
   } = req.body;
 
   try {
@@ -1684,6 +1685,10 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
 
     if (!modalities || !Array.isArray(modalities) || modalities.length === 0) {
       return res.status(400).json({ error: 'Debes seleccionar al menos una modalidad' });
+    }
+
+    if (!professionalTermsAccepted) {
+      return res.status(400).json({ error: 'Debés aceptar los Términos y Condiciones para Profesionales' });
     }
 
     // Verificar si ya tiene una solicitud
@@ -1720,6 +1725,8 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         vehicleType: profession.trim(),
         provinceId: req.dbUser.provinceId,     // Heredamos del usuario
         cityId: req.dbUser.cityId,             // Heredamos del usuario
+        professionalTermsAcceptedAt: new Date(),
+        professionalTermsVersion: 'v1',
       }
     });
 
@@ -2083,9 +2090,13 @@ app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
 
 // ==================== REGISTRO DE USUARIO ====================
 app.post('/register', async (req: any, res: any) => {
-  const { id, email, firstName, lastName, address, photoUrl,provinceId,cityId } = req.body;
+  const { id, email, firstName, lastName, address, photoUrl, provinceId, cityId, termsAccepted } = req.body;
 
   try {
+    if (!termsAccepted) {
+      return res.status(400).json({ error: 'Debés aceptar los Términos y Condiciones y la Política de Privacidad' });
+    }
+
     // Crear o actualizar usuario en Prisma
     const user = await prisma.user.upsert({
       where: { id },
@@ -2096,6 +2107,8 @@ app.post('/register', async (req: any, res: any) => {
         photoUrl: photoUrl || null,
         provinceId: provinceId || null,
         cityId: cityId || null,
+        termsAcceptedAt: new Date(),
+        termsVersion: 'v1',
       },
       create: {
         id,
@@ -2108,6 +2121,8 @@ app.post('/register', async (req: any, res: any) => {
         photoUrl: photoUrl || null,
         provinceId: provinceId || null,
         cityId: cityId || null,
+        termsAcceptedAt: new Date(),
+        termsVersion: 'v1',
       },
     });
 

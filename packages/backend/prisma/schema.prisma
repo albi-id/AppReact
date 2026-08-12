@@ -61,7 +61,8 @@ model User {
   provinceId String?
   cityId String?
   paymentMethod PaymentMethod?
-
+  termsAcceptedAt DateTime?
+  termsVersion    String?
   province Province? @relation(fields: [provinceId], references: [id])
   city City? @relation(fields: [cityId], references: [id])
   reports  Report[]
@@ -102,6 +103,8 @@ model Professional {
   mpRefreshToken   String?
   mpTokenExpiresAt DateTime?
   mpPkceVerifier String?
+  professionalTermsAcceptedAt DateTime?
+  professionalTermsVersion    String?
   province Province? @relation(fields: [provinceId], references: [id])  
   city City? @relation(fields: [cityId], references: [id])  
   // Relación con servicios donde este profesional es quien presta el servicio
