@@ -45,6 +45,10 @@ enum PaymentStatus {
   rejected
   in_process
 }
+enum ProfessionType {
+  REGULATED_PROFESSION
+  TRADE
+}
 // ==================== MODELOS =====================
 model User {
   id String @id @default(cuid())
@@ -106,6 +110,9 @@ model Professional {
   professionalTermsAcceptedAt DateTime?
   professionalTermsVersion    String?
   lateCancelCount Int @default(0)
+  professionType   ProfessionType?
+  licenseNumber    String?
+  credentialUrl String?
   province Province? @relation(fields: [provinceId], references: [id])  
   city City? @relation(fields: [cityId], references: [id])  
   // Relación con servicios donde este profesional es quien presta el servicio
