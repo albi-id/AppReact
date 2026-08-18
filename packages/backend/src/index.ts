@@ -210,6 +210,99 @@ function calculateChargeAmount(professionalAmount: number) {
   return { professionalAmount, platformFee, mpFeeEstimate, totalToCharge };
 }
 
+function calculateSignalCharge(signalAmount: number) {
+  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
+  const totalToCharge = round2(signalAmount / (1 - mpDeductionRate));
+  const mpFeeEstimate = round2(totalToCharge - signalAmount);
+  return { signalAmount, mpFeeEstimate, totalToCharge };
+}
+
+async function chargeSignalWithToken(serviceId: string, cardToken: string) {
+  const service = await prisma.service.findUnique({ where: { id: serviceId } });
+
+  if (!service || service.status !== 'ACCEPTED' || service.signalPaidAt) {
+    return { success: false, reason: 'not_chargeable' as const };
+  }
+
+  const paymentMethod = await prisma.paymentMethod.findUnique({
+    where: { userId: service.requesterId },
+  });
+  if (!paymentMethod) {
+    return { success: false, reason: 'no_payment_method' as const };
+  }
+
+   let signalAmount: number | undefined;
+  try {
+    const config = getServiceConfig(service.type);
+    signalAmount = config?.signalAmount;
+  } catch {
+    return { success: false, reason: 'no_signal_amount' as const };
+  }
+  if (!signalAmount) {
+    return { success: false, reason: 'no_signal_amount' as const };
+  }
+
+  const { totalToCharge } = calculateSignalCharge(signalAmount);
+
+  let order: any;
+  try {
+    const orderRes = await axios.post(
+      `${MP_API}/v1/orders`,
+      {
+        type: 'online',
+        processing_mode: 'automatic',
+        external_reference: `signal-${service.id}`,
+        total_amount: String(totalToCharge),
+        items: [{
+          title: `Seña por uso de la app - Servicio de ${service.type}`,
+          quantity: 1,
+          unit_price: String(totalToCharge),
+        }],
+        payer: { customer_id: paymentMethod.mpCustomerId },
+        transactions: {
+          payments: [{
+            amount: String(totalToCharge),
+            payment_method: {
+              id: paymentMethod.cardPaymentMethodId,
+              type: 'credit_card',
+              token: cardToken,
+              installments: 1,
+              statement_descriptor: 'NEXOS SERVICIOS',
+            },
+          }],
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+          'X-Idempotency-Key': `signal-${service.id}-${Date.now()}`,
+        },
+      }
+    );
+    order = orderRes.data;
+  } catch (error: any) {
+    order = error.response?.data?.data;
+    if (!order) {
+      console.error(`💥 Error cobrando seña servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
+      return { success: false, reason: 'mp_error' as const };
+    }
+  }
+
+  const payment = order.transactions?.payments?.[0];
+  const status = mapPaymentStatus(payment?.status);
+
+  await prisma.service.update({
+    where: { id: service.id },
+    data: {
+      signalMpPaymentId: payment ? String(payment.id) : null,
+      signalPaymentStatus: status as any,
+      signalPaidAt: status === 'approved' ? new Date() : null,
+    },
+  });
+
+  return { success: status === 'approved', status: payment?.status, statusDetail: payment?.status_detail };
+}
+
 async function chargeServiceWithToken(serviceId: string, cardToken: string) {
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
 
@@ -361,6 +454,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         s."paymentModality",
         s."paymentStatus",
         s."totalCharged",
+        s."signalPaymentStatus",
         p.id as "professionalId",
         p."fullName",
         p.profession,
@@ -402,7 +496,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       paymentModality: service.paymentModality,
       paymentStatus: service.paymentStatus,
       totalCharged: service.totalCharged,
-      
+      signalPaymentStatus: service.signalPaymentStatus, 
       professional: service.professionalId ? {
         id: service.professionalId,
         fullName: service.fullName || 'Profesional',
@@ -2889,16 +2983,26 @@ function buildCardFormHtml(publicKey: string) {
 </html>`;
 }
 
-const OFFER_TIMEOUT_MS = 45_000; // 45s para que el profesional responda
-const OFFER_CHECK_INTERVAL_MS = 15_000; // cada cuánto revisamos ofertas vencidas
+const OFFER_INACTIVITY_MINUTES = 4; // minutos sin actividad (chat) antes de reasignar
+const OFFER_CHECK_INTERVAL_MS = 30_000; // cada cuánto revisamos ofertas vencidas
 
 setInterval(async () => {
   try {
-    const cutoff = new Date(Date.now() - OFFER_TIMEOUT_MS);
-    const expired = await prisma.service.findMany({
-      where: { status: 'OFFERED', offeredAt: { lt: cutoff } },
-      select: { id: true },
-    });
+    // Por cada servicio OFFERED, la "referencia" de actividad es el último mensaje
+    // (de cualquiera de las dos partes) si existe, o offeredAt si todavía no chatearon.
+    // Se reasigna cuando pasaron más de OFFER_INACTIVITY_MINUTES desde esa referencia.
+    const expired = await prisma.$queryRawUnsafe<{ id: string }[]>(`
+      SELECT s.id
+      FROM "services" s
+      LEFT JOIN LATERAL (
+        SELECT MAX(m."createdAt") AS "lastMessageAt"
+        FROM "Message" m
+        WHERE m."serviceId" = s.id
+      ) msg ON true
+      WHERE s.status = 'OFFERED'
+        AND GREATEST(s."offeredAt", COALESCE(msg."lastMessageAt", s."offeredAt"))
+            < NOW() - INTERVAL '${OFFER_INACTIVITY_MINUTES} minutes';
+    `);
 
     for (const service of expired) {
       const result = await reassignService(prisma, service.id);
@@ -2935,6 +3039,57 @@ app.get('/professional/mercadopago-status', authenticate, async (req: any, res: 
   });
   res.json({ linked: !!professional?.mpAccessToken });
 });
+
+app.get('/services/:id/signal-breakdown', authenticate, async (req: any, res: any) => {
+  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+  if (!service || service.requesterId !== req.user.id) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+    let signalAmount: number | undefined;
+  try {
+    const config = getServiceConfig(service.type);
+    signalAmount = config?.signalAmount;
+  } catch {
+    signalAmount = undefined;
+  }
+  if (!signalAmount) {
+    return res.status(400).json({ error: 'Esta profesión no tiene configurada una seña' });
+  }
+  res.json(calculateSignalCharge(signalAmount));
+});
+
+app.post('/services/:id/charge-signal-with-token', authenticate, async (req: any, res: any) => {
+  const { cardToken } = req.body;
+  const userId = req.user.id;
+
+  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+
+  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+  if (!service || service.requesterId !== userId) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+  if (service.status !== 'ACCEPTED') {
+    return res.status(400).json({ error: 'El servicio todavía no fue aceptado por el profesional' });
+  }
+  if (service.signalPaidAt) {
+    return res.status(400).json({ error: 'La seña ya fue pagada' });
+  }
+
+  const result = await chargeSignalWithToken(req.params.id, cardToken);
+
+  if (result.success) {
+    return res.json({ approved: true });
+  }
+  if (result.reason === 'no_payment_method') {
+    return res.status(400).json({ error: 'No tenés un método de pago vinculado' });
+  }
+  if (result.reason === 'no_signal_amount') {
+    return res.status(400).json({ error: 'Esta profesión no tiene configurado un monto de seña' });
+  }
+  return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
+});
+
+
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
