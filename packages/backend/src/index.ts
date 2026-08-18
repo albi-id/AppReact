@@ -18,6 +18,12 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
+function calculateFinalCharge(professionalAmount: number) {
+  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
+  const totalToCharge = round2(professionalAmount / (1 - mpDeductionRate));
+  const mpFeeEstimate = round2(totalToCharge - professionalAmount);
+  return { professionalAmount, mpFeeEstimate, totalToCharge };
+}
 async function ensureValidProfessionalToken(professionalId: string): Promise<string> {
   const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
   if (!professional?.mpAccessToken || !professional.mpRefreshToken) {
@@ -296,16 +302,7 @@ const MP_FEE_IVA_RATE = 0.21;
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
-
-function calculateChargeAmount(professionalAmount: number) {
-  const platformFee = round2(professionalAmount * PLATFORM_FEE_RATE);
-  const netTarget = professionalAmount + platformFee;
-  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
-  const totalToCharge = round2(netTarget / (1 - mpDeductionRate));
-  const mpFeeEstimate = round2(totalToCharge - netTarget);
-
-  return { professionalAmount, platformFee, mpFeeEstimate, totalToCharge };
-}
+ 
 
 function calculateSignalCharge(signalAmount: number) {
   const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
@@ -419,7 +416,14 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
     console.log('🚫 [CHARGE] no_professional → serviceId:', service.id);
     return { success: false, reason: 'no_professional' as const };
   }
-  const { platformFee, mpFeeEstimate, totalToCharge } = calculateChargeAmount(service.amount);
+    let professionalAccessToken: string;
+  try {
+    professionalAccessToken = await ensureValidProfessionalToken(service.professionalId);
+  } catch {
+    return { success: false, reason: 'professional_not_linked' as const };
+  }
+
+  const { mpFeeEstimate, totalToCharge } = calculateFinalCharge(service.amount);
 
   let order: any;
   try {
@@ -451,7 +455,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
       },
       {
         headers: {
-          Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+          Authorization: `Bearer ${professionalAccessToken}`,
           'X-Idempotency-Key': `charge-${service.id}-${Date.now()}`,
         },
       }
@@ -476,7 +480,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
     data: {
       mpPaymentId: payment ? String(payment.id) : null,
       paymentStatus: status as any,
-      platformFee, mpFeeEstimate, totalCharged: totalToCharge,
+      mpFeeEstimate, totalCharged: totalToCharge,
       paidAt: status === 'approved' ? new Date() : null,
     },
   });
@@ -3129,7 +3133,7 @@ app.get('/services/:id/payment-breakdown', authenticate, async (req: any, res: a
   if (!service.amount) {
     return res.status(400).json({ error: 'Todavía no hay un monto definido' });
   }
-  const breakdown = calculateChargeAmount(service.amount);
+  const breakdown = calculateFinalCharge(service.amount);
   res.json(breakdown);
 });
 
