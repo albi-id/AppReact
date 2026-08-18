@@ -191,6 +191,29 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 const LATE_CANCEL_CHARGE_ARS = 800;
  
+async function refundSignal(serviceId: string, mpPaymentId: string) {
+  try {
+    await axios.post(
+      `${MP_API}/v1/payments/${mpPaymentId}/refunds`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${MP_ACCESS_TOKEN}`,
+          'X-Idempotency-Key': `refund-signal-${serviceId}-${Date.now()}`,
+        },
+      }
+    );
+
+    await prisma.service.update({
+      where: { id: serviceId },
+      data: { signalPaymentStatus: 'refunded' as any },
+    });
+
+    console.log(`✅ [REFUND] Seña reembolsada para servicio ${serviceId}`);
+  } catch (error: any) {
+    console.error(`💥 Error reembolsando seña servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
+  }
+}
 
 async function chargeLateCancellationWithToken(serviceId: string, cardToken: string) {
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
@@ -873,12 +896,17 @@ async function reassignService(
       rejectAttempts: true,
       rejectedProfessionalIds: true,
       paymentModality: true,
+      signalPaymentStatus: true,
+      signalMpPaymentId: true,
+      requesterId: true,
     }
   });
 
-  if (!service || service.status !== 'OFFERED') {
+    if (!service || (service.status !== 'OFFERED' && service.status !== 'ACCEPTED')) {
     return { reassigned: false as const, reason: 'not_offered' as const };
   }
+
+  const wasAccepted = service.status === 'ACCEPTED';
 
   if (
     service.pickupLat == null ||
@@ -913,8 +941,11 @@ async function reassignService(
     });
   }
 
-  if (newRejectAttempts >= MAX_REJECT_ATTEMPTS) {
+    if (newRejectAttempts >= MAX_REJECT_ATTEMPTS) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
+    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
+      await refundSignal(serviceId, service.signalMpPaymentId);
+    }
     return { reassigned: false as const, reason: 'max_attempts' as const };
   }
 
@@ -940,8 +971,11 @@ async function reassignService(
     candidates = candidates.filter((c: any) => eligibleIds.has(c.id));
   }
 
-  if (candidates.length === 0) {
+    if (candidates.length === 0) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
+    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
+      await refundSignal(serviceId, service.signalMpPaymentId);
+    }
     return { reassigned: false as const, reason: 'no_candidates' as const };
   }
 
@@ -960,8 +994,11 @@ async function reassignService(
     }
   }
 
-  if (!assigned) {
+    if (!assigned) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
+    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
+      await refundSignal(serviceId, service.signalMpPaymentId);
+    }
     return { reassigned: false as const, reason: 'all_taken' as const };
   }
 
@@ -3233,6 +3270,61 @@ app.post('/services/:id/cancel-with-charge', authenticate, async (req: any, res:
     return res.status(400).json({ error: 'No se pudo procesar el cargo hacia el profesional' });
   }
   return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
+});
+
+app.patch('/services/:serviceId/cancel-by-professional', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+
+  try {
+    if (req.dbUser.role !== 'PROFESSIONAL') {
+      return res.status(403).json({ error: 'Solo profesionales pueden usar este endpoint' });
+    }
+
+    const professional = await prisma.professional.findUnique({ where: { userId: req.user.id } });
+    if (!professional) return res.status(404).json({ error: 'Perfil no encontrado' });
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: { id: true, professionalId: true, status: true, pickupLat: true, pickupLng: true, cityId: true, provinceId: true }
+    });
+
+    if (!service || service.professionalId !== professional.id || service.status !== 'ACCEPTED') {
+      return res.status(403).json({ error: 'No podés cancelar este servicio' });
+    }
+
+    if (service.pickupLat == null || service.pickupLng == null || service.cityId == null || service.provinceId == null) {
+      return res.status(500).json({ error: 'El servicio tiene datos de ubicación incompletos' });
+    }
+
+    const result = await reassignService(prisma, serviceId);
+
+    await prisma.professional.update({
+      where: { id: professional.id },
+      data: { lateCancelCount: { increment: 1 } },
+    });
+
+    if (result.reassigned) {
+      return res.json({
+        message: 'Cancelaste el servicio. Se buscó y asignó a otro profesional disponible.',
+        reassigned: true,
+      });
+    }
+
+    const messages: Record<string, string> = {
+      max_attempts: 'Cancelaste el servicio. No se encontró otro profesional disponible; se reembolsó la seña al cliente.',
+      no_candidates: 'Cancelaste el servicio. No hay otros profesionales cercanos disponibles; se reembolsó la seña al cliente.',
+      all_taken: 'Cancelaste el servicio. Los profesionales cercanos ya estaban ocupados; se reembolsó la seña al cliente.',
+    };
+
+    return res.json({
+      message: messages[result.reason as string] || 'Servicio cancelado.',
+      reassigned: false,
+    });
+
+  } catch (error: any) {
+    console.error('💥 Error al cancelar servicio (profesional):', error);
+    res.status(500).json({ error: 'Error interno al cancelar' });
+  }
 });
 
 app.listen(port, "0.0.0.0", () => {
