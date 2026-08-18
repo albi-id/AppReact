@@ -147,16 +147,13 @@ model Service {
   amountProposedAt DateTime?
   requester User @relation("ServiceRequester", fields: [requesterId], references: [id])
   professional Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
-  messages Message[] 
-  platformFee   Float?
+  messages Message[]  
   mpFeeEstimate Float?
   totalCharged  Float?
   mpPaymentId   String?
   paymentStatus PaymentStatus?
   paymentModality Modality?
-  offeredAt       DateTime?
-  payoutStatus String?   @default("PENDING") // PENDING | PAID
-  payoutAt     DateTime?
+  offeredAt       DateTime?  
   signalPaymentStatus    PaymentStatus?
   signalMpPaymentId      String?
   signalPaidAt           DateTime?
