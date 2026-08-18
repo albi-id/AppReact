@@ -18,12 +18,7 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
-function calculateFinalCharge(professionalAmount: number) {
-  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
-  const totalToCharge = round2(professionalAmount / (1 - mpDeductionRate));
-  const mpFeeEstimate = round2(totalToCharge - professionalAmount);
-  return { professionalAmount, mpFeeEstimate, totalToCharge };
-}
+ 
 async function ensureValidProfessionalToken(professionalId: string): Promise<string> {
   const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
   if (!professional?.mpAccessToken || !professional.mpRefreshToken) {
@@ -195,13 +190,7 @@ const authenticate = async (req: any, res: any, next: any) => {
 };
 
 const LATE_CANCEL_CHARGE_ARS = 800;
-
-function calculateLateCancelCharge() {
-  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
-  const totalToCharge = round2(LATE_CANCEL_CHARGE_ARS / (1 - mpDeductionRate));
-  const mpFeeEstimate = round2(totalToCharge - LATE_CANCEL_CHARGE_ARS);
-  return { chargeAmount: LATE_CANCEL_CHARGE_ARS, mpFeeEstimate, totalToCharge };
-}
+ 
 
 async function chargeLateCancellationWithToken(serviceId: string, cardToken: string) {
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
@@ -227,7 +216,7 @@ async function chargeLateCancellationWithToken(serviceId: string, cardToken: str
     return { success: false, reason: 'professional_not_linked' as const };
   }
 
-  const { totalToCharge } = calculateLateCancelCharge();
+    const totalToCharge = LATE_CANCEL_CHARGE_ARS;
 
   let order: any;
   try {
@@ -302,14 +291,7 @@ const MP_FEE_IVA_RATE = 0.21;
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
- 
-
-function calculateSignalCharge(signalAmount: number) {
-  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
-  const totalToCharge = round2(signalAmount / (1 - mpDeductionRate));
-  const mpFeeEstimate = round2(totalToCharge - signalAmount);
-  return { signalAmount, mpFeeEstimate, totalToCharge };
-}
+  
 
 async function chargeSignalWithToken(serviceId: string, cardToken: string) {
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
@@ -336,7 +318,7 @@ async function chargeSignalWithToken(serviceId: string, cardToken: string) {
     return { success: false, reason: 'no_signal_amount' as const };
   }
 
-  const { totalToCharge } = calculateSignalCharge(signalAmount);
+    const totalToCharge = signalAmount;
 
   let order: any;
   try {
@@ -423,7 +405,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
     return { success: false, reason: 'professional_not_linked' as const };
   }
 
-  const { mpFeeEstimate, totalToCharge } = calculateFinalCharge(service.amount);
+    const totalToCharge = service.amount;
 
   let order: any;
   try {
@@ -480,7 +462,7 @@ async function chargeServiceWithToken(serviceId: string, cardToken: string) {
     data: {
       mpPaymentId: payment ? String(payment.id) : null,
       paymentStatus: status as any,
-      mpFeeEstimate, totalCharged: totalToCharge,
+      totalCharged: totalToCharge,
       paidAt: status === 'approved' ? new Date() : null,
     },
   });
@@ -3133,8 +3115,7 @@ app.get('/services/:id/payment-breakdown', authenticate, async (req: any, res: a
   if (!service.amount) {
     return res.status(400).json({ error: 'Todavía no hay un monto definido' });
   }
-  const breakdown = calculateFinalCharge(service.amount);
-  res.json(breakdown);
+   res.json({ professionalAmount: service.amount, totalToCharge: service.amount });
 });
 
 app.get('/professional/mercadopago-status', authenticate, async (req: any, res: any) => {
@@ -3163,7 +3144,7 @@ app.get('/services/:id/signal-breakdown', authenticate, async (req: any, res: an
   if (!signalAmount) {
     return res.status(400).json({ error: 'Esta profesión no tiene configurada una seña' });
   }
-  res.json(calculateSignalCharge(signalAmount));
+  res.json({ signalAmount, totalToCharge: signalAmount });
 });
 
 app.post('/services/:id/charge-signal-with-token', authenticate, async (req: any, res: any) => {
@@ -3202,7 +3183,7 @@ app.get('/services/:id/cancellation-charge-breakdown', authenticate, async (req:
   if (!service || service.requesterId !== req.user.id) {
     return res.status(404).json({ error: 'No encontrado' });
   }
-  res.json(calculateLateCancelCharge());
+    res.json({ chargeAmount: LATE_CANCEL_CHARGE_ARS, totalToCharge: LATE_CANCEL_CHARGE_ARS });
 });
 
 app.post('/services/:id/cancel-with-charge', authenticate, async (req: any, res: any) => {

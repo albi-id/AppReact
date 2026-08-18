@@ -147,8 +147,7 @@ model Service {
   amountProposedAt DateTime?
   requester User @relation("ServiceRequester", fields: [requesterId], references: [id])
   professional Professional? @relation("ServiceProfessional", fields: [professionalId], references: [id])
-  messages Message[]  
-  mpFeeEstimate Float?
+  messages Message[]   
   totalCharged  Float?
   mpPaymentId   String?
   paymentStatus PaymentStatus?
