@@ -105,6 +105,7 @@ model Professional {
   mpPkceVerifier String?
   professionalTermsAcceptedAt DateTime?
   professionalTermsVersion    String?
+  lateCancelCount Int @default(0)
   province Province? @relation(fields: [provinceId], references: [id])  
   city City? @relation(fields: [cityId], references: [id])  
   // Relación con servicios donde este profesional es quien presta el servicio
@@ -156,6 +157,12 @@ model Service {
   offeredAt       DateTime?
   payoutStatus String?   @default("PENDING") // PENDING | PAID
   payoutAt     DateTime?
+  signalPaymentStatus    PaymentStatus?
+  signalMpPaymentId      String?
+  signalPaidAt           DateTime?
+  cancellationChargeStatus     PaymentStatus?
+  cancellationChargeMpPaymentId String?
+  cancellationChargedAt        DateTime?
   @@map("services")
   @@index([requesterId, status])
   @@index([professionalId, status])
