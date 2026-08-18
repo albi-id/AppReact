@@ -668,6 +668,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         s."amountProposedAt",
         s."paymentModality",
         s."paymentStatus",
+        s."signalPaymentStatus",
         r.id as "requesterId",
         r."firstName",
         r."lastName",
@@ -708,6 +709,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         amountProposedAt: service.amountProposedAt,
         paymentModality: service.paymentModality,
         paymentStatus: service.paymentStatus,
+        signalPaymentStatus: service.signalPaymentStatus,
         pickupLat: service.pickupLat,
         pickupLng: service.pickupLng,
 
@@ -1138,6 +1140,10 @@ app.patch('/services/:serviceId/arrive', authenticate, async (req: any, res: any
 
     if (service.status !== 'ACCEPTED') {
       return res.status(403).json({ error: 'El servicio debe estar en estado ACCEPTED para marcar llegada' });
+    }
+
+    if (service.signalPaymentStatus !== 'approved') {
+      return res.status(403).json({ error: 'El cliente todavía no pagó la seña. Esperá a que la confirme antes de dirigirte al domicilio.' });
     }
 
     const updated = await prisma.service.update({
