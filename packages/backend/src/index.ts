@@ -188,6 +188,103 @@ const authenticate = async (req: any, res: any, next: any) => {
   }
 };
 
+const LATE_CANCEL_CHARGE_ARS = 800;
+
+function calculateLateCancelCharge() {
+  const mpDeductionRate = MP_FEE_RATE * (1 + MP_FEE_IVA_RATE);
+  const totalToCharge = round2(LATE_CANCEL_CHARGE_ARS / (1 - mpDeductionRate));
+  const mpFeeEstimate = round2(totalToCharge - LATE_CANCEL_CHARGE_ARS);
+  return { chargeAmount: LATE_CANCEL_CHARGE_ARS, mpFeeEstimate, totalToCharge };
+}
+
+async function chargeLateCancellationWithToken(serviceId: string, cardToken: string) {
+  const service = await prisma.service.findUnique({ where: { id: serviceId } });
+
+  if (!service || service.status !== 'ACCEPTED' || service.cancellationChargeStatus === 'approved') {
+    return { success: false, reason: 'not_chargeable' as const };
+  }
+  if (!service.professionalId) {
+    return { success: false, reason: 'no_professional' as const };
+  }
+
+  const paymentMethod = await prisma.paymentMethod.findUnique({
+    where: { userId: service.requesterId },
+  });
+  if (!paymentMethod) {
+    return { success: false, reason: 'no_payment_method' as const };
+  }
+
+  let professionalAccessToken: string;
+  try {
+    professionalAccessToken = await ensureValidProfessionalToken(service.professionalId);
+  } catch {
+    return { success: false, reason: 'professional_not_linked' as const };
+  }
+
+  const { totalToCharge } = calculateLateCancelCharge();
+
+  let order: any;
+  try {
+    const orderRes = await axios.post(
+      `${MP_API}/v1/orders`,
+      {
+        type: 'online',
+        processing_mode: 'automatic',
+        external_reference: `latecancel-${service.id}`,
+        total_amount: String(totalToCharge),
+        items: [{
+          title: `Cargo por cancelación tardía - Servicio de ${service.type}`,
+          quantity: 1,
+          unit_price: String(totalToCharge),
+        }],
+        payer: { customer_id: paymentMethod.mpCustomerId },
+        transactions: {
+          payments: [{
+            amount: String(totalToCharge),
+            payment_method: {
+              id: paymentMethod.cardPaymentMethodId,
+              type: 'credit_card',
+              token: cardToken,
+              installments: 1,
+              statement_descriptor: 'NEXOS SERVICIOS',
+            },
+          }],
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${professionalAccessToken}`,
+          'X-Idempotency-Key': `latecancel-${service.id}-${Date.now()}`,
+        },
+      }
+    );
+    order = orderRes.data;
+  } catch (error: any) {
+    order = error.response?.data?.data;
+    if (!order) {
+      console.error(`💥 Error cobrando cancelación tardía servicio ${serviceId}:`, JSON.stringify(error.response?.data || error.message, null, 2));
+      return { success: false, reason: 'mp_error' as const };
+    }
+  }
+
+  const payment = order.transactions?.payments?.[0];
+  const status = mapPaymentStatus(payment?.status);
+
+  const updateData: any = {
+    cancellationChargeMpPaymentId: payment ? String(payment.id) : null,
+    cancellationChargeStatus: status as any,
+  };
+
+  if (status === 'approved') {
+    updateData.cancellationChargedAt = new Date();
+    updateData.status = 'CANCELLED';
+  }
+
+  await prisma.service.update({ where: { id: service.id }, data: updateData });
+
+  return { success: status === 'approved', status: payment?.status, statusDetail: payment?.status_detail };
+}
+
 const MP_API = 'https://api.mercadopago.com';
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN as string;
 console.log('🔑 MP_ACCESS_TOKEN termina en:', MP_ACCESS_TOKEN?.slice(-15));
@@ -2579,7 +2676,14 @@ app.patch('/services/:id/cancel', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'No podés cancelar este servicio' });
     }
 
-    const cancelableStatuses = ['REQUESTED', 'OFFERED', 'ACCEPTED'];
+      if (service.status === 'ACCEPTED') {
+      return res.status(409).json({
+        error: 'El profesional ya aceptó y puede estar en camino. Para cancelar, primero tenés que confirmar el cargo de cancelación.',
+        requiresCharge: true,
+      });
+    }
+
+    const cancelableStatuses = ['REQUESTED', 'OFFERED'];
     if (!cancelableStatuses.includes(service.status)) {
       return res.status(400).json({ error: 'Este servicio ya no se puede cancelar' });
     }
@@ -3089,7 +3193,41 @@ app.post('/services/:id/charge-signal-with-token', authenticate, async (req: any
   return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
 });
 
+app.get('/services/:id/cancellation-charge-breakdown', authenticate, async (req: any, res: any) => {
+  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+  if (!service || service.requesterId !== req.user.id) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+  res.json(calculateLateCancelCharge());
+});
 
+app.post('/services/:id/cancel-with-charge', authenticate, async (req: any, res: any) => {
+  const { cardToken } = req.body;
+  const userId = req.user.id;
+
+  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+
+  const service = await prisma.service.findUnique({ where: { id: req.params.id } });
+  if (!service || service.requesterId !== userId) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+  if (service.status !== 'ACCEPTED') {
+    return res.status(400).json({ error: 'Este servicio ya no está en un estado que requiera este cargo' });
+  }
+
+  const result = await chargeLateCancellationWithToken(req.params.id, cardToken);
+
+  if (result.success) {
+    return res.json({ approved: true, cancelled: true });
+  }
+  if (result.reason === 'no_payment_method') {
+    return res.status(400).json({ error: 'No tenés un método de pago vinculado' });
+  }
+  if (result.reason === 'professional_not_linked') {
+    return res.status(400).json({ error: 'No se pudo procesar el cargo hacia el profesional' });
+  }
+  return res.status(402).json({ approved: false, detail: result.statusDetail || result.reason });
+});
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
