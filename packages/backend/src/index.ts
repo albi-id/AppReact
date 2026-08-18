@@ -1844,7 +1844,7 @@ app.get('/professionals/:id', async (req: any, res: any) => {
 
 // HU-23: Registro como Prestador de Servicios 
 app.post('/professionals/register', authenticate, async (req: any, res: any) => {
-  const { 
+    const { 
     profession, 
     description, 
     phone, 
@@ -1852,8 +1852,11 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
     dniFrontUrl, 
     dniBackUrl, 
     certificateUrl,
+    credentialUrl,
     modalities,
     professionalTermsAccepted,
+    professionType,
+    licenseNumber,
   } = req.body;
 
   try {
@@ -1870,8 +1873,17 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
       return res.status(400).json({ error: 'Debes seleccionar al menos una modalidad' });
     }
 
-    if (!professionalTermsAccepted) {
+       if (!professionalTermsAccepted) {
       return res.status(400).json({ error: 'Debés aceptar los Términos y Condiciones para Profesionales' });
+    }
+
+    if (professionType === 'REGULATED_PROFESSION') {
+      if (!licenseNumber || typeof licenseNumber !== 'string' || !licenseNumber.trim()) {
+        return res.status(400).json({ error: 'Debés indicar tu número de matrícula profesional' });
+      }
+      if (!credentialUrl) {
+        return res.status(400).json({ error: 'Debés subir tu título o certificado de matrícula' });
+      }
     }
 
     // Verificar si ya tiene una solicitud
@@ -1902,6 +1914,9 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
         dniFrontUrl: dniFrontUrl || null,
         dniBackUrl: dniBackUrl || null,
         certificateUrl: certificateUrl || null,
+        credentialUrl: credentialUrl || null,
+        professionType: professionType === 'REGULATED_PROFESSION' ? 'REGULATED_PROFESSION' : 'TRADE',
+        licenseNumber: licenseNumber?.trim() || null,
         modalities: modalities || ['TIME_BASED'],
         isActive: false,
         status: 'PENDING',
