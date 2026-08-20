@@ -8,7 +8,8 @@ import axios from 'axios';
 import { getServiceConfig } from './config/services';  
 import path from 'path';
 import crypto from 'crypto';
- 
+import rateLimit from 'express-rate-limit';
+
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
 // ==================== SETUP ====================
@@ -55,8 +56,14 @@ async function ensureValidProfessionalToken(professionalId: string): Promise<str
   return access_token;
 }
 
+// NUEVO
 const app = express();
- 
+
+// Render corre detrás de un proxy — sin esto, express-rate-limit ve
+// la IP del proxy en vez de la del cliente real, y todos los usuarios
+// terminan compartiendo el mismo contador.
+app.set('trust proxy', 1);
+
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   credentials: true,
@@ -74,47 +81,26 @@ app.use((req, res, next) => {
 
 //para mercado pago
 app.use(express.static(path.join(__dirname, '..', 'public')));
-/*
+
 // ==================== RATE LIMITING ====================
-const limiter = rateLimit({
-  windowMs: 60 * 1000,        // 1 minuto
-  max: 120,                    // máximo 60 requests por minuto por IP
+// NUEVO — reemplaza el bloque comentado completo
+const registerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 25, // sin contraseña que forzar, solo frena spam/bots de registro
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    error: 'Demasiadas solicitudes. Por favor intenta más tarde.'
-  }
+  message: { error: 'Demasiados intentos. Intenta más tarde.' },
 });
 
-// Rate limit  
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,   // 15 minutos
-  max: 10,                    // máximo 10 intentos de login/register
-  message: { error: 'Demasiados intentos. Intenta más tarde.' }
-});
-
-const apiLimiter = rateLimit({
+const requestServiceLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 40,                    // 40 requests por minuto   
-});
-
-// Rate Limiter más estricto para endpoints críticos
-const strictLimiter = rateLimit({
-  windowMs: 60 * 1000,   // 1 minuto
-  max: 150,               
+  max: 15, // pedir un servicio es una acción deliberada, no polling de fondo
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Estás buscando muy rápido. Espera unos segundos.' }
+  message: { error: 'Demasiadas solicitudes. Esperá un momento.' },
 });
 
-// Aplicar a middlewares
-app.use(limiter);                    // Global  
-app.use('/register', authLimiter);
-app.use('/login', authLimiter);       
-app.use('/services/request', apiLimiter);   // Endpoint crítico
-app.use('/upload', apiLimiter);
-app.use('/professionals', strictLimiter);   
-*/
+//==========
 
 const port = Number(process.env.PORT) || 10000;
 
@@ -1514,7 +1500,7 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
 
 // ==================== SOLICITAR SERVICIO
 // HU-20: Solicitud de servicio con matching inteligente por profesión + modalidad + cercanía
-app.post('/services/request', authenticate, async (req: any, res: any) => {
+app.post('/services/request', authenticate, requestServiceLimiter, async (req: any, res: any) => {
   const { type, pickupLat, pickupLng, pickupAddress, pickupAddressExtra, reference, floor, doorNumber, cityId, provinceId, professionalId, paymentModality } = req.body;
 
   try {
@@ -2294,7 +2280,7 @@ app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
 });
 
 // ==================== REGISTRO DE USUARIO ====================
-app.post('/register', authenticate, async (req: any, res: any) => {
+app.post('/register', authenticate, registerLimiter, async (req: any, res: any) => {
   const { firstName, lastName, address, photoUrl, provinceId, cityId, termsAccepted } = req.body;
   const id = req.user.id;
   const email = req.user.email!;
