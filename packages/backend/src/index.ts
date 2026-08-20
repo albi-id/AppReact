@@ -3139,7 +3139,7 @@ setInterval(async () => {
     // Por cada servicio OFFERED, la "referencia" de actividad es el último mensaje
     // (de cualquiera de las dos partes) si existe, o offeredAt si todavía no chatearon.
     // Se reasigna cuando pasaron más de OFFER_INACTIVITY_MINUTES desde esa referencia.
-    const expired = await prisma.$queryRawUnsafe<{ id: string }[]>(`
+     const expired = await prisma.$queryRawUnsafe<{ id: string }[]>(`
       SELECT s.id
       FROM "services" s
       LEFT JOIN LATERAL (
@@ -3151,6 +3151,8 @@ setInterval(async () => {
         AND GREATEST(s."offeredAt", COALESCE(msg."lastMessageAt", s."offeredAt"))
             < NOW() - INTERVAL '${OFFER_INACTIVITY_MINUTES} minutes';
     `);
+
+    console.log(`🔍 [OFFER TIMEOUT] Chequeo ejecutado — vencidos encontrados: ${expired.length}`);
 
     for (const service of expired) {
       const result = await reassignService(prisma, service.id);
