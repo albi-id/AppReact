@@ -162,6 +162,7 @@ model Service {
   paymentModality Modality?
   offeredAt       DateTime?  
   isDirectRequest Boolean @default(false)
+  signalMpOrderId String?
   signalPaymentStatus    PaymentStatus?
   signalMpPaymentId      String?
   signalPaidAt           DateTime?

@@ -191,10 +191,10 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 const LATE_CANCEL_CHARGE_ARS = 800;
  
-async function refundSignal(serviceId: string, mpPaymentId: string) {
+async function refundSignal(serviceId: string, mpOrderId: string) {
   try {
     await axios.post(
-      `${MP_API}/v1/payments/${mpPaymentId}/refunds`,
+      `${MP_API}/v1/orders/${mpOrderId}/refund`,
       {},
       {
         headers: {
@@ -394,6 +394,7 @@ async function chargeSignalWithToken(serviceId: string, cardToken: string) {
     where: { id: service.id },
     data: {
       signalMpPaymentId: payment ? String(payment.id) : null,
+      signalMpOrderId: order.id,
       signalPaymentStatus: status as any,
       signalPaidAt: status === 'approved' ? new Date() : null,
     },
@@ -897,7 +898,7 @@ async function reassignService(
       rejectedProfessionalIds: true,
       paymentModality: true,
       signalPaymentStatus: true,
-      signalMpPaymentId: true,
+      signalMpOrderId: true,
       requesterId: true,
       isDirectRequest: true,
     }
@@ -919,8 +920,8 @@ async function reassignService(
   }
     if (service.isDirectRequest) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
-    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
-      await refundSignal(serviceId, service.signalMpPaymentId);
+    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpOrderId) {
+      await refundSignal(serviceId, service.signalMpOrderId);
     }
     return { reassigned: false as const, reason: 'direct_request_no_reassign' as const };
   }
