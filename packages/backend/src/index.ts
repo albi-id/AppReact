@@ -884,7 +884,7 @@ async function reassignService(
 ) {
   const service = await prisma.service.findUnique({
     where: { id: serviceId },
-    select: {
+      select: {
       id: true,
       type: true,
       status: true,
@@ -899,6 +899,7 @@ async function reassignService(
       signalPaymentStatus: true,
       signalMpPaymentId: true,
       requesterId: true,
+      isDirectRequest: true,
     }
   });
 
@@ -915,6 +916,13 @@ async function reassignService(
     service.provinceId == null
   ) {
     return { reassigned: false as const, reason: 'invalid_location' as const };
+  }
+    if (service.isDirectRequest) {
+    await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
+    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
+      await refundSignal(serviceId, service.signalMpPaymentId);
+    }
+    return { reassigned: false as const, reason: 'direct_request_no_reassign' as const };
   }
 
   const excludeId = service.professionalId;
@@ -1634,10 +1642,10 @@ let newService;
 
     // ==================== NUEVO: asignación directa, sin matching ====================
     if (directProfessional) {
-      try {
+        try {
         await prisma.service.update({
           where: { id: newService.id },
-          data: { professionalId: directProfessional.id, status: 'OFFERED' }
+          data: { professionalId: directProfessional.id, status: 'OFFERED', offeredAt: new Date(), isDirectRequest: true }
         });
       } catch (error: any) {
         if (error.code === 'P2002') {
@@ -1711,7 +1719,7 @@ const professionals = await findNearestProfessional(prisma, {
       try {
         await prisma.service.update({
           where: { id: newService.id },
-          data: { professionalId: candidate.id, status: 'OFFERED' },
+          data: { professionalId: candidate.id, status: 'OFFERED', offeredAt: new Date() },
         });
         assigned = candidate;
         break;

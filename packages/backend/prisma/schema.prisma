@@ -161,6 +161,7 @@ model Service {
   paymentStatus PaymentStatus?
   paymentModality Modality?
   offeredAt       DateTime?  
+  isDirectRequest Boolean @default(false)
   signalPaymentStatus    PaymentStatus?
   signalMpPaymentId      String?
   signalPaidAt           DateTime?
