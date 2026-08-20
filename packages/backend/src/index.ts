@@ -10,6 +10,15 @@ import path from 'path';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import {SERVICE_TYPES } from './config/services';
+// Al inicio del archivo, después de los imports existentes
+import * as Sentry from '@sentry/node';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || 'production',
+  tracesSampleRate: 0.1,
+});
+
 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -56,7 +65,7 @@ async function ensureValidProfessionalToken(professionalId: string): Promise<str
 
   return access_token;
 }
-
+ 
 // NUEVO
 const app = express();
 
@@ -65,13 +74,16 @@ const app = express();
 // terminan compartiendo el mismo contador.
 app.set('trust proxy', 1);
 
+if (!process.env.CORS_ORIGIN) {
+  console.warn('⚠️ CORS_ORIGIN no está definida — usando restricción por defecto');
+}
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.CORS_ORIGIN || 'https://este-origen-no-existe.invalid',
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
 app.use(express.json());
 
 // Logging de requests para debug rate limit
@@ -2301,7 +2313,7 @@ app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
     if (!photoUrl || typeof photoUrl !== 'string' || !photoUrl.startsWith(process.env.SUPABASE_URL as string)) {
       return res.status(400).json({ error: 'photoUrl inválido' });
     }
-    
+
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },
       data: { photoUrl }
@@ -3376,6 +3388,8 @@ app.patch('/services/:serviceId/cancel-by-professional', authenticate, async (re
     res.status(500).json({ error: 'Error interno al cancelar' });
   }
 });
+
+Sentry.setupExpressErrorHandler(app);
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
