@@ -28,17 +28,17 @@ async function ensureValidProfessionalToken(professionalId: string): Promise<str
   const expiresInMs = professional.mpTokenExpiresAt
     ? professional.mpTokenExpiresAt.getTime() - Date.now()
     : 0;
-
+ 
   // Refrescamos si falta menos de un día para que venza
   if (expiresInMs > 24 * 60 * 60 * 1000) {
-    return professional.mpAccessToken;
+    return decryptToken(professional.mpAccessToken);
   }
 
   const refreshRes = await axios.post(`${MP_API}/oauth/token`, {
     client_id: process.env.MP_CLIENT_ID,
     client_secret: process.env.MP_CLIENT_SECRET,
     grant_type: 'refresh_token',
-    refresh_token: professional.mpRefreshToken,
+    refresh_token: decryptToken(professional.mpRefreshToken),
   });
 
   const { access_token, refresh_token, expires_in } = refreshRes.data;
@@ -46,8 +46,8 @@ async function ensureValidProfessionalToken(professionalId: string): Promise<str
   await prisma.professional.update({
     where: { id: professionalId },
     data: {
-      mpAccessToken: access_token,
-      mpRefreshToken: refresh_token,
+      mpAccessToken: encryptToken(access_token),
+      mpRefreshToken: encryptToken(refresh_token),
       mpTokenExpiresAt: new Date(Date.now() + expires_in * 1000),
     },
   });
@@ -188,6 +188,25 @@ const authenticate = async (req: any, res: any, next: any) => {
     res.status(500).json({ error: 'Error de autenticación interna' });
   }
 };
+
+// ==================== CIFRADO DE TOKENS SENSIBLES (AES-256-GCM) ====================
+const ENCRYPTION_KEY = Buffer.from(process.env.TOKEN_ENCRYPTION_KEY as string, 'hex');
+
+function encryptToken(plain: string): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptToken(stored: string): string {
+  const [ivHex, tagHex, dataHex] = stored.split(':');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  const decrypted = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+  return decrypted.toString('utf8');
+}
 
 const LATE_CANCEL_CHARGE_ARS = 800;
  
@@ -2998,14 +3017,15 @@ app.get('/professionals/mercadopago/callback', async (req: any, res: any) => {
       code_verifier: professional.mpPkceVerifier,
     });
 
+  // NUEVO
     const { access_token, refresh_token, user_id, expires_in } = tokenRes.data;
 
 await prisma.professional.update({
       where: { id: professionalId as string },
       data: {
         mpUserId: String(user_id),
-        mpAccessToken: access_token,
-        mpRefreshToken: refresh_token,
+        mpAccessToken: encryptToken(access_token),
+        mpRefreshToken: encryptToken(refresh_token),
         mpTokenExpiresAt: new Date(Date.now() + expires_in * 1000),
         mpPkceVerifier: null,
       },
