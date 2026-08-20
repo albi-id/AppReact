@@ -9,6 +9,7 @@ import { getServiceConfig } from './config/services';
 import path from 'path';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
+import {SERVICE_TYPES } from './config/services';
 
 console.log('DATABASE_URL cargada:', process.env.DATABASE_URL ? 'Sí' : 'NO');
 
@@ -1263,7 +1264,9 @@ app.post('/services/:id/charge-with-token', authenticate, async (req: any, res: 
   const { cardToken } = req.body;
   const userId = req.user.id;
 
-  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+  if (!cardToken || typeof cardToken !== 'string' || cardToken.length > 500) {
+    return res.status(400).json({ error: 'Token de tarjeta inválido' });
+  }
 
   const service = await prisma.service.findUnique({ where: { id: req.params.id } });
   if (!service || service.requesterId !== userId) {
@@ -1297,8 +1300,11 @@ app.post('/services/:serviceId/rate', authenticate, async (req: any, res: any) =
       return res.status(403).json({ error: 'Solo los solicitantes pueden calificar servicios' });
     }
 
-    if (!rating || rating < 1 || rating > 5) {
+    if (!rating || typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5) {
       return res.status(400).json({ error: 'La calificación debe estar entre 1 y 5 estrellas' });
+    }
+    if (review && (typeof review !== 'string' || review.length > 1000)) {
+      return res.status(400).json({ error: 'La reseña es demasiado larga' });
     }
 
     const service = await prisma.service.findUnique({
@@ -1466,9 +1472,13 @@ app.get('/professional/profile', authenticate, async (req: any, res: any) => {
 // HU-06.2: Actualizar ubicación en tiempo real del profesional
 app.patch('/professional/location', authenticate, async (req: any, res: any) => {
   const { lat, lng } = req.body;
-
-  if (typeof lat !== 'number' || typeof lng !== 'number') {
-    return res.status(400).json({ error: 'lat y lng deben ser números válidos' });
+ 
+  if (
+    typeof lat !== 'number' || typeof lng !== 'number' ||
+    !Number.isFinite(lat) || !Number.isFinite(lng) ||
+    lat < -90 || lat > 90 || lng < -180 || lng > 180
+  ) {
+    return res.status(400).json({ error: 'lat y lng deben ser coordenadas válidas' });
   }
 
   try {
@@ -1479,11 +1489,11 @@ app.patch('/professional/location', authenticate, async (req: any, res: any) => 
   // Actualización con raw query (la forma correcta con geography)
     await prisma.$executeRawUnsafe(`
       UPDATE "professionals"
-      SET "lastLocation" = ST_MakePoint(${lng}, ${lat})::geography,
+      SET "lastLocation" = ST_MakePoint($1::float, $2::float)::geography,
           "lastLocationAt" = NOW(),
           "updatedAt" = NOW()
-      WHERE "userId" = $1
-    `, req.user.id);
+      WHERE "userId" = $3
+    `, lng, lat, req.user.id);
 
     console.log(`📍 Profesional ${req.user.id} actualizó ubicación: (${lat}, ${lng})`);
 
@@ -1508,9 +1518,18 @@ app.post('/services/request', authenticate, requestServiceLimiter, async (req: a
       return res.status(403).json({ error: 'Solo usuarios pueden solicitar servicios' });
     }
 
-    if (!type || !pickupLat || !pickupLng || !cityId || !provinceId || !pickupAddress?.trim()) {
+    const VALID_SERVICE_KEYS = new Set(SERVICE_TYPES.map(s => s.key));
+    const lat = Number(pickupLat);
+    const lng = Number(pickupLng);
+
+    if (
+      !type || typeof type !== 'string' || !VALID_SERVICE_KEYS.has(type) ||
+      pickupLat === undefined || pickupLat === null || !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+      pickupLng === undefined || pickupLng === null || !Number.isFinite(lng) || lng < -180 || lng > 180 ||
+      !cityId || !provinceId || !pickupAddress?.trim()
+    ) {
       return res.status(400).json({ 
-        error: 'type, pickupLat, pickupLng, cityId y provinceId son obligatorios' 
+        error: 'type, pickupLat, pickupLng, cityId y provinceId son obligatorios y deben ser válidos' 
       });
     }
 
@@ -1866,8 +1885,17 @@ app.post('/professionals/register', authenticate, async (req: any, res: any) => 
       return res.status(400).json({ error: 'Debes seleccionar al menos una modalidad' });
     }
 
-       if (!professionalTermsAccepted) {
+    if (!professionalTermsAccepted) {
       return res.status(400).json({ error: 'Debés aceptar los Términos y Condiciones para Profesionales' });
+    }
+
+    // Los paths de documentos deben pertenecer a la propia carpeta del usuario
+    const ownPrefix = `professionals/${req.user.id}/`;
+    const documentFields = { dniFrontUrl, dniBackUrl, certificateUrl, credentialUrl };
+    for (const [field, value] of Object.entries(documentFields)) {
+      if (value && (typeof value !== 'string' || !value.startsWith(ownPrefix))) {
+        return res.status(400).json({ error: `${field} inválido` });
+      }
     }
 
     if (professionType === 'REGULATED_PROFESSION') {
@@ -1942,6 +1970,10 @@ app.patch('/professionals/:id/status', authenticate, async (req: any, res: any) 
   const { id } = req.params;
   const { status } = req.body; // APPROVED o REJECTED
 
+  if (!['APPROVED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({ error: 'status debe ser APPROVED o REJECTED' });
+  }
+
   try {
     if (req.dbUser.role !== 'ADMIN') {
       return res.status(403).json({ error: 'Solo administradores pueden hacer esto' });
@@ -2000,7 +2032,8 @@ app.patch('/services/:serviceId/propose-amount', authenticate, async (req: any, 
     if (service.status !== 'COMPLETED' || service.amount) {
       return res.status(400).json({ error: 'Este servicio no está esperando un monto' });
     }
-    if (!amount || Number(amount) <= 0) {
+    const numericAmount = Number(amount);
+    if (!amount || !Number.isFinite(numericAmount) || numericAmount <= 0 || numericAmount > 100_000_000) {
       return res.status(400).json({ error: 'Monto inválido' });
     }
 
@@ -2087,8 +2120,8 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
   console.log(`📩 [MESSAGE] Intentando enviar mensaje - serviceId: ${serviceId} | Usuario: ${req.user.id}`);
 
   try {
-    if (!content?.trim()) {
-      return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
+    if (!content?.trim() || typeof content !== 'string' || content.length > 2000) {
+      return res.status(400).json({ error: 'El mensaje no puede estar vacío ni superar los 2000 caracteres' });
     }
 
     if (!serviceId) {
@@ -2220,6 +2253,14 @@ app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any
 app.patch('/users/me', authenticate, async (req: any, res: any) => {
   const { firstName, lastName, photoUrl, address } = req.body;
 
+  const isValidText = (v: any, maxLen: number) =>
+    v === undefined || (typeof v === 'string' && v.trim().length <= maxLen);
+
+  if (!isValidText(firstName, 100) || !isValidText(lastName, 100) ||
+      !isValidText(photoUrl, 500) || !isValidText(address, 300)) {
+    return res.status(400).json({ error: 'Uno o más campos tienen un formato inválido' });
+  }
+
   try {
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },
@@ -2254,13 +2295,13 @@ app.patch('/users/me', authenticate, async (req: any, res: any) => {
 
 // HU-31: Subir foto de perfil (Bucket público)
 app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
-  const { photoUrl } = req.body;   // URL temporal desde el frontend (después de subir a Supabase)
+  const { photoUrl } = req.body;
 
   try {
-    if (!photoUrl) {
-      return res.status(400).json({ error: 'photoUrl es requerido' });
+    if (!photoUrl || typeof photoUrl !== 'string' || !photoUrl.startsWith(process.env.SUPABASE_URL as string)) {
+      return res.status(400).json({ error: 'photoUrl inválido' });
     }
-
+    
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },
       data: { photoUrl }
@@ -2409,7 +2450,7 @@ app.post('/chats/find-or-create', authenticate, async (req: any, res: any) => {
   const userId = req.user.id;
 
   try {
-    if (!otherUserId) {
+    if (!otherUserId || typeof otherUserId !== 'string') {
       return res.status(400).json({ error: 'professionalId es requerido' });
     }
     if (otherUserId === userId) {
@@ -2549,10 +2590,10 @@ app.patch('/user/location', authenticate, async (req: any, res: any) => {
     await prisma.$executeRawUnsafe(`
       UPDATE "users"
       SET 
-        "lastLocation" = ST_MakePoint(${lng}, ${lat})::geography,
+        "lastLocation" = ST_MakePoint($1::float, $2::float)::geography,
         "updatedAt" = NOW()
-      WHERE id = $1
-    `, req.user.id);
+      WHERE id = $3
+    `, lng, lat, req.user.id);
 
     console.log(`✅ Ubicación actualizada correctamente para usuario ${req.user.id}`);
 
@@ -2681,8 +2722,11 @@ app.get('/professionals/:id/document-url', authenticate, async (req: any, res: a
 app.post('/reports', authenticate, async (req: any, res: any) => {
     const { reason, details, reportedProfessionalId, serviceId, platform } = req.body;
 
-  if (!reason) {
+  if (!reason || typeof reason !== 'string' || reason.trim().length === 0 || reason.length > 200) {
     return res.status(400).json({ error: 'Falta el motivo del reporte' });
+  }
+  if (details && (typeof details !== 'string' || details.length > 2000)) {
+    return res.status(400).json({ error: 'El detalle es demasiado largo' });
   }
 
   try {
@@ -3211,7 +3255,9 @@ app.post('/services/:id/charge-signal-with-token', authenticate, async (req: any
   const { cardToken } = req.body;
   const userId = req.user.id;
 
-  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+  if (!cardToken || typeof cardToken !== 'string' || cardToken.length > 500) {
+    return res.status(400).json({ error: 'Token de tarjeta inválido' });
+  }
 
   const service = await prisma.service.findUnique({ where: { id: req.params.id } });
   if (!service || service.requesterId !== userId) {
@@ -3250,7 +3296,9 @@ app.post('/services/:id/cancel-with-charge', authenticate, async (req: any, res:
   const { cardToken } = req.body;
   const userId = req.user.id;
 
-  if (!cardToken) return res.status(400).json({ error: 'Falta el token de la tarjeta' });
+  if (!cardToken || typeof cardToken !== 'string' || cardToken.length > 500) {
+    return res.status(400).json({ error: 'Token de tarjeta inválido' });
+  }
 
   const service = await prisma.service.findUnique({ where: { id: req.params.id } });
   if (!service || service.requesterId !== userId) {
