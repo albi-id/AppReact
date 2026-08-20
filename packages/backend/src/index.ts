@@ -631,20 +631,6 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
   }
 });
 
-// Endpoint de debug temporal
-app.get('/debug/user', authenticate, async (req: any, res: any) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: { services: true }
-    });
-    res.json({ user });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
- 
 // HU-16: Mis servicios como profesional (CON DISTANCIA)
 app.get('/services/professional/my', authenticate, async (req: any, res: any) => {
   try {
@@ -777,50 +763,6 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
 });
 
 // ==================== OTRAS RUTAS IMPORTANTES ====================
- 
-// HU-07: Registro como Profesional (anteriormente Driver)
-app.post('/driver/profile', authenticate, async (req: any, res: any) => {
-  const { vehicleType, profession } = req.body;
-
-  try {
-    if (req.dbUser.role !== 'USER') {
-      return res.status(403).json({ error: 'Debes ser usuario para registrarte' });
-    }
-
-    const prof = await prisma.professional.upsert({
-      where: { userId: req.user.id },
-      update: {
-        profession: profession || vehicleType,
-        vehicleType: vehicleType || null,
-        isActive: false,
-        status: 'PENDING',
-      },
-      create: {
-        userId: req.user.id,
-        fullName: req.dbUser.email.split('@')[0], // Temporal
-        profession: profession || vehicleType || 'Sin definir',
-        vehicleType: vehicleType || null,
-        isActive: false,
-        status: 'PENDING',
-      },
-    });
-
-    await prisma.user.update({
-      where: { id: req.user.id },
-      data: { role: 'USER' }
-    });
-
-    res.json({ 
-      message: 'Perfil de profesional creado. Pendiente de aprobación.', 
-      professional: prof 
-    });
-
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
-
 
  //hdu-8 Aceptar servicio
 app.patch('/services/:serviceId/accept', authenticate, async (req: any, res: any) => {
@@ -2333,15 +2275,16 @@ app.post('/users/me/photo', authenticate, async (req: any, res: any) => {
 });
 
 // ==================== REGISTRO DE USUARIO ====================
-app.post('/register', async (req: any, res: any) => {
-  const { id, email, firstName, lastName, address, photoUrl, provinceId, cityId, termsAccepted } = req.body;
+app.post('/register', authenticate, async (req: any, res: any) => {
+  const { firstName, lastName, address, photoUrl, provinceId, cityId, termsAccepted } = req.body;
+  const id = req.user.id;
+  const email = req.user.email!;
 
   try {
     if (!termsAccepted) {
       return res.status(400).json({ error: 'Debés aceptar los Términos y Condiciones y la Política de Privacidad' });
     }
 
-    // Crear o actualizar usuario en Prisma
     const user = await prisma.user.upsert({
       where: { id },
       update: {
