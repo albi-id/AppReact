@@ -920,7 +920,7 @@ async function reassignService(
   }
     if (service.isDirectRequest) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
-    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpOrderId) {
+       if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpOrderId) {
       await refundSignal(serviceId, service.signalMpOrderId);
     }
     return { reassigned: false as const, reason: 'direct_request_no_reassign' as const };
@@ -952,8 +952,8 @@ async function reassignService(
 
     if (newRejectAttempts >= MAX_REJECT_ATTEMPTS) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
-    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
-      await refundSignal(serviceId, service.signalMpPaymentId);
+       if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpOrderId) {
+      await refundSignal(serviceId, service.signalMpOrderId);
     }
     return { reassigned: false as const, reason: 'max_attempts' as const };
   }
@@ -982,8 +982,8 @@ async function reassignService(
 
     if (candidates.length === 0) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
-    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
-      await refundSignal(serviceId, service.signalMpPaymentId);
+        if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpOrderId) {
+      await refundSignal(serviceId, service.signalMpOrderId);
     }
     return { reassigned: false as const, reason: 'no_candidates' as const };
   }
@@ -1005,8 +1005,8 @@ async function reassignService(
 
     if (!assigned) {
     await prisma.service.update({ where: { id: serviceId }, data: { status: 'WAITING' } });
-    if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpPaymentId) {
-      await refundSignal(serviceId, service.signalMpPaymentId);
+        if (wasAccepted && service.signalPaymentStatus === 'approved' && service.signalMpOrderId) {
+      await refundSignal(serviceId, service.signalMpOrderId);
     }
     return { reassigned: false as const, reason: 'all_taken' as const };
   }
