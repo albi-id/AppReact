@@ -2599,16 +2599,19 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
   }
 });
 
-// Generar URL firmada para subir documentos
+// Generar URL firmada para subir documentos 
 app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
   try {
     const { fileName } = req.body;
 
     if (!fileName) return res.status(400).json({ error: 'fileName requerido' });
 
-    const filePath = `professionals/${req.user.id}/${Date.now()}-${fileName}`;
+    // Sanitizamos: solo letras, números, punto, guion y guion bajo.
+    // Bloquea path traversal (../) y separadores de ruta.
+    const safeFileName = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
 
-    // Usamos el service_role client para bypass RLS en uploads
+    const filePath = `professionals/${req.user.id}/${Date.now()}-${safeFileName}`;
+
     const { data, error } = await supabase.storage
       .from('documents')
       .createSignedUploadUrl(filePath);
@@ -2621,13 +2624,52 @@ app.post('/upload/signed-url', authenticate, async (req: any, res: any) => {
     res.json({
       success: true,
       signedUrl: data.signedUrl,
-      publicUrl: data.signedUrl.split('?')[0],
       path: filePath
     });
 
   } catch (error: any) {
     console.error('Error generando signed URL:', error);
     res.status(500).json({ error: error.message || 'Error interno' });
+  }
+});
+
+// Genera una URL temporal para ver un documento de un profesional.
+// Solo el propio profesional o un admin pueden pedirla.
+app.get('/professionals/:id/document-url', authenticate, async (req: any, res: any) => {
+  const { id } = req.params;
+  const { path } = req.query;
+
+  if (!path || typeof path !== 'string') {
+    return res.status(400).json({ error: 'path es requerido' });
+  }
+
+  try {
+    const professional = await prisma.professional.findUnique({ where: { id } });
+    if (!professional) return res.status(404).json({ error: 'Profesional no encontrado' });
+
+    const isOwner = professional.userId === req.user.id;
+    const isAdmin = req.dbUser.role === 'ADMIN';
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'No tenés permiso para ver este documento' });
+    }
+
+    // El path debe pertenecer efectivamente a este profesional (evita que
+    // alguien pase el path de otro profesional una vez que probó ser dueño/admin)
+    if (!path.startsWith(`professionals/${professional.userId}/`)) {
+      return res.status(403).json({ error: 'Documento no pertenece a este profesional' });
+    }
+
+    const { data, error } = await supabase.storage
+      .from('documents')
+      .createSignedUrl(path, 300); // 5 minutos
+
+    if (error) throw error;
+
+    res.json({ url: data.signedUrl, expiresIn: 300 });
+  } catch (error: any) {
+    console.error('Error generando URL de lectura:', error);
+    res.status(500).json({ error: 'Error interno al generar la URL' });
   }
 });
 
