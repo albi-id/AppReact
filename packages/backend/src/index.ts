@@ -3322,9 +3322,9 @@ app.patch('/services/:serviceId/cancel-by-professional', authenticate, async (re
     }
 
     const messages: Record<string, string> = {
-      max_attempts: 'Cancelaste el servicio. No se encontró otro profesional disponible; se reembolsó la seña al cliente.',
-      no_candidates: 'Cancelaste el servicio. No hay otros profesionales cercanos disponibles; se reembolsó la seña al cliente.',
-      all_taken: 'Cancelaste el servicio. Los profesionales cercanos ya estaban ocupados; se reembolsó la seña al cliente.',
+      max_attempts: 'Cancelaste el servicio',
+      no_candidates: 'Cancelaste el servicio',
+      all_taken: 'Cancelaste el servicio',
     };
 
     return res.json({
