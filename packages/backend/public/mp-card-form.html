@@ -37,6 +37,13 @@
       outline: none;
       border-color: #93c5fd;
     }
+    .field-hint {
+      display: block;
+      color: #64748b;
+      font-size: 12px;
+      margin-bottom: 8px;
+      margin-top: -4px;
+    }
     button {
       width: 100%;
       background: #2563eb;
@@ -94,6 +101,7 @@
   <form id="form-checkout">
 <input id="cardNumber" placeholder="Número de tarjeta" inputmode="numeric" maxlength="23" required />
     <input id="cardholderName" placeholder="Nombre y apellido (como figura en la tarjeta)" required />
+    <label class="field-hint">Fecha de vencimiento (mes y año) y código de seguridad</label>
     <div class="row">
       <input id="cardExpirationMonth" placeholder="MM" inputmode="numeric" maxlength="2" required />
       <input id="cardExpirationYear" placeholder="AA" inputmode="numeric" maxlength="2" required />
@@ -101,7 +109,7 @@
     </div>
     <input id="docNumber" placeholder="DNI (sin puntos)" inputmode="numeric" required />
     <div id="error"></div>
-    <button type="submit" id="submitBtn">Guardar Tarjeta</button>
+    <button type="submit" id="submitBtn">Vincular Tarjeta</button>
   </form>
 
   <script src="https://sdk.mercadopago.com/js/v2"></script>
