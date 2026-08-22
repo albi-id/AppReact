@@ -1008,11 +1008,9 @@ async function findNearestProfessional(
         p."lastLocation"::geography
       ) / 1000 as "distanceKm"
     FROM "professionals" p
-    WHERE p."isActive" = true  
+      WHERE p."isActive" = true  
       AND p.status = 'APPROVED'
       AND p.profession = $3
-      AND p."cityId" = $4
-      AND p."provinceId" = $5
       AND p."lastLocationAt" > NOW() - INTERVAL '2 minutes'
       AND ST_DWithin(
         p."lastLocation"::geography,

@@ -123,7 +123,7 @@
     // Si se abre con ?mode=edit, es para reemplazar una tarjeta ya guardada
     const params = new URLSearchParams(window.location.search);
     const isEdit = params.get('mode') === 'edit';
-    const defaultBtnLabel = isEdit ? 'Actualizar Tarjeta' : 'Guardar Tarjeta';
+    const defaultBtnLabel = isEdit ? 'Actualizar Tarjeta' : 'Vincular Tarjeta';
     if (isEdit) {
       document.title = 'Cambiar Tarjeta';
     }
