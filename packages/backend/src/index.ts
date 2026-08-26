@@ -153,20 +153,25 @@ const authenticate = async (req: any, res: any, next: any) => {
     // === SI NO EXISTE, CREAR ===
     if (!dbUser) {
       console.log(`🆕 [AUTH] Creando nuevo usuario en Prisma...`);
+      const meta = user.user_metadata || {};
       dbUser = await prisma.user.create({
         data: {
           id: user.id,
           email: user.email!,
           password: "supabase-auth",
           role: 'USER',
-          firstName: null,
-          lastName: null,
-          address: null,
+          firstName: meta.firstName || null,
+          lastName: meta.lastName || null,
+          address: meta.address || null,
+          provinceId: meta.provinceId || null,
+          cityId: meta.cityId || null,
           photoUrl: null,
+          termsAcceptedAt: meta.termsAccepted ? new Date() : null,
+          termsVersion: meta.termsAccepted ? 'v1' : null,
         }
       });
       console.log(`✅ [AUTH] Usuario creado correctamente`);
-    } 
+    }
     // === SI EXISTE PERO EL ID ES DIFERENTE (conflicto), ACTUALIZARLO ===
     else if (dbUser.id !== user.id) {
       console.log(`🔄 [AUTH] Actualizando ID del usuario (conflicto anterior)`);
