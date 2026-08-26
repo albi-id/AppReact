@@ -3394,6 +3394,12 @@ app.patch('/services/:serviceId/cancel-by-professional', authenticate, async (re
 
 Sentry.setupExpressErrorHandler(app);
 
+app.post('/debug-log', (req, res) => {
+  const { action, elapsedMs, phase, extra } = req.body;
+  console.log(`🐛 [CLIENT TIMING] ${action} | fase: ${phase} | tardó: ${elapsedMs}ms | extra: ${JSON.stringify(extra || {})}`);
+  res.sendStatus(200);
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${port}`);
 });
