@@ -2539,9 +2539,10 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
 
   if (!otherUserId || otherUserId === userId) return;
 
-  const otherName = otherUser
+  const fullName = otherUser
     ? `${otherUser.firstName || ''} ${otherUser.lastName || ''}`.trim()
-    : 'Usuario';
+    : '';
+  const otherName = fullName || 'Cuenta eliminada';
 
   const lastMessage = conv.messages[0];
   const lastMessageDate = lastMessage?.createdAt || conv.requestedAt;
