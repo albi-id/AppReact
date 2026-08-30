@@ -723,11 +723,12 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         ? parseFloat(service.distanceKm).toFixed(2) 
         : "0.00";
 
-      return {
+        return {
         id: service.id,
         type: service.type,
         status: service.status,
         amount: service.amount,
+        rating: service.rating,
         requestedAt: service.requestedAt,
         acceptedAt: service.acceptedAt,
         arrivedAt: service.arrivedAt,
