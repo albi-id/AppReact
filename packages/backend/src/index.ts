@@ -86,11 +86,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Logging de requests para debug rate limit
-app.use((req, res, next) => {
-  console.log(`📡 [REQUEST] ${req.method} ${req.path} - IP: ${req.ip}`);
-  next();
-});
+ 
 
 //para mercado pago
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -121,7 +117,6 @@ const port = Number(process.env.PORT) || 10000;
 const authenticate = async (req: any, res: any, next: any) => {
   try {
     const authHeader = req.headers.authorization;
-    console.log(`🔐 [AUTH] Intentando autenticar...`);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Token requerido' });
@@ -135,8 +130,6 @@ const authenticate = async (req: any, res: any, next: any) => {
       console.log('❌ [AUTH] Token inválido');
       return res.status(401).json({ error: 'Token inválido o expirado' });
     }
-
-    console.log(`✅ [AUTH] Usuario Supabase: ${user.email} (${user.id})`);
 
     // === BUSCAR POR ID ===
     let dbUser = await prisma.user.findUnique({
@@ -180,8 +173,6 @@ const authenticate = async (req: any, res: any, next: any) => {
         data: { id: user.id }
       });
     }
-
-    console.log(`✅ [AUTH] Usuario listo en Prisma: ${dbUser.email} (${dbUser.id})`);
 
     req.user = user;
     req.dbUser = dbUser;
@@ -1661,9 +1652,7 @@ const professionals = await findNearestProfessional(prisma, {
       excludeProfessionalIds: [],
       limit: 8,
     });
-
-    console.log('🔍 [DEBUG] paymentModality recibido:', paymentModality);
-    console.log('🔍 [DEBUG] candidatos de findNearestProfessional:', professionals);
+ 
 
     // Filtramos a los candidatos que realmente ofrecen la modalidad pedida por el cliente
     let eligibleProfessionals = professionals || [];
@@ -1678,7 +1667,7 @@ const professionals = await findNearestProfessional(prisma, {
       const eligibleIds = new Set(withModality.map((p) => p.id));
       eligibleProfessionals = eligibleProfessionals.filter((p: any) => eligibleIds.has(p.id));
     }
-    console.log('🔍 [DEBUG] eligibleProfessionals después del filtro:', eligibleProfessionals);
+ 
     if (!eligibleProfessionals?.length) {
       await prisma.service.update({
         where: { id: newService.id },
@@ -2132,8 +2121,6 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
   const { serviceId } = req.params;
   const { content } = req.body;
 
-  console.log(`📩 [MESSAGE] Intentando enviar mensaje - serviceId: ${serviceId} | Usuario: ${req.user.id}`);
-
   try {
     if (!content?.trim() || typeof content !== 'string' || content.length > 2000) {
       return res.status(400).json({ error: 'El mensaje no puede estar vacío ni superar los 2000 caracteres' });
@@ -2160,8 +2147,6 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
 
     const isRequester = service.requesterId === req.user.id;
     const isProfessional = service.professional?.user?.id === req.user.id;
-
-    console.log(`🔍 Participante - Requester: ${isRequester}, Professional: ${isProfessional}`);
 
     if (!isRequester && !isProfessional) {
       return res.status(403).json({ error: 'No tienes permiso para chatear en este servicio' });
@@ -2196,9 +2181,7 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
       }
     });
 
-    console.log(`✅ Mensaje enviado correctamente en servicio ${serviceId}`);
-
-    res.status(201).json({ 
+    res.status(201).json({
       message: 'Mensaje enviado correctamente',
       data: message 
     });
@@ -2212,8 +2195,6 @@ app.post('/services/:serviceId/messages', authenticate, async (req: any, res: an
 // Obtener mensajes de un servicio
 app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
-
-  console.log(`📡 Cargando mensajes para serviceId: ${serviceId} | Usuario: ${req.user.id}`);
 
   try {
     const service = await prisma.service.findUnique({
@@ -2233,8 +2214,6 @@ app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any
     const isRequester = service.requesterId === req.user.id;
     const isProfessional = service.professional?.user?.id === req.user.id;
 
-    console.log(`🔍 Acceso - Requester: ${isRequester}, Professional: ${isProfessional}`);
-
     if (!isRequester && !isProfessional) {
       return res.status(403).json({ error: 'No tienes permiso' });
     }
@@ -2253,8 +2232,6 @@ app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any
       },
       orderBy: { createdAt: 'asc' }
     });
-
-    console.log(`✅ Mensajes encontrados: ${messages.length} para service ${serviceId}`);
 
     res.json({ messages });
 
@@ -2920,15 +2897,8 @@ function validateWebhookSignature(req: any): boolean {
   const dataId = ((req.query['data.id'] as string) || '').toLowerCase();
   const secret = process.env.MP_WEBHOOK_SECRET as string;
 
-  console.log('🔐 [WEBHOOK SIGNATURE] query completo:', JSON.stringify(req.query));
-  console.log('🔐 [WEBHOOK SIGNATURE] dataId extraído:', dataId);
-  console.log('🔐 [WEBHOOK SIGNATURE] x-signature header:', xSignature);
-  console.log('🔐 [WEBHOOK SIGNATURE] x-request-id header:', xRequestId);
-  console.log('🔐 [WEBHOOK SIGNATURE] secret cargado, longitud:', secret?.length);
-  console.log('🔐 [WEBHOOK SIGNATURE] secret entre comillas (para ver espacios):', JSON.stringify(secret));
-
   if (!xSignature || !secret) {
-    console.log('🔐 [WEBHOOK SIGNATURE] Falta xSignature o secret, rechazando');
+    console.warn('⚠️ [WEBHOOK] Falta x-signature o MP_WEBHOOK_SECRET, notificación rechazada');
     return false;
   }
 
@@ -2939,10 +2909,7 @@ function validateWebhookSignature(req: any): boolean {
     if (key?.trim() === 'ts') ts = val?.trim();
     if (key?.trim() === 'v1') hash = val?.trim();
   }
-  if (!ts || !hash) {
-    console.log('🔐 [WEBHOOK SIGNATURE] No se pudo extraer ts/hash del header');
-    return false;
-  }
+  if (!ts || !hash) return false;
 
   const parts: string[] = [];
   if (dataId) parts.push(`id:${dataId}`);
@@ -2950,17 +2917,14 @@ function validateWebhookSignature(req: any): boolean {
   parts.push(`ts:${ts}`);
   const manifest = parts.join(';') + ';';
 
-  console.log('🔐 [WEBHOOK SIGNATURE] manifest construido:', manifest);
-
   const computed = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
 
-  console.log('🔐 [WEBHOOK SIGNATURE] hash calculado:', computed);
-  console.log('🔐 [WEBHOOK SIGNATURE] hash recibido:  ', hash);
-
   try {
-    return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+    const valid = crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(hash));
+    if (!valid) console.warn('⚠️ [WEBHOOK] Firma inválida, notificación rechazada');
+    return valid;
   } catch {
-    console.log('🔐 [WEBHOOK SIGNATURE] Error en timingSafeEqual (probablemente largos distintos)');
+    console.warn('⚠️ [WEBHOOK] Error al comparar firmas (largos distintos)');
     return false;
   }
 }
