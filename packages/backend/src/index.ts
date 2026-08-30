@@ -29,6 +29,10 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
  
 async function ensureValidProfessionalToken(professionalId: string): Promise<string> {
   const professional = await prisma.professional.findUnique({ where: { id: professionalId } });
@@ -3362,6 +3366,68 @@ app.post('/debug-log', (req, res) => {
   const { action, elapsedMs, phase, extra } = req.body;
   console.log(`🐛 [CLIENT TIMING] ${action} | fase: ${phase} | tardó: ${elapsedMs}ms | extra: ${JSON.stringify(extra || {})}`);
   res.sendStatus(200);
+});
+
+app.delete('/users/me/delete-account', authenticate, async (req: any, res: any) => {
+  try {
+    const userId = req.user.id;
+
+    // Si es profesional, borramos también sus documentos del storage y
+    // desvinculamos Mercado Pago
+    const professional = await prisma.professional.findUnique({ where: { userId } });
+    if (professional) {
+      const paths = [professional.dniFrontUrl, professional.dniBackUrl, professional.certificateUrl, professional.credentialUrl]
+        .filter(Boolean) as string[];
+      for (const path of paths) {
+        await supabase.storage.from('documents').remove([path]).catch(() => {});
+      }
+      await prisma.professional.update({
+        where: { userId },
+        data: {
+          fullName: 'Usuario eliminado',
+          phone: null,
+          address: null,
+          dniFrontUrl: null,
+          dniBackUrl: null,
+          certificateUrl: null,
+          credentialUrl: null,
+          mpAccessToken: null,
+          mpRefreshToken: null,
+          mpUserId: null,
+          isActive: false,
+          status: 'REJECTED',
+        },
+      });
+    }
+
+    // Anonimizamos al usuario — conservamos la fila por las relaciones con
+    // Service/pagos, pero sin ningún dato identificable
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        email: `deleted-${userId}@neos.app`,
+        firstName: null,
+        lastName: null,
+        photoUrl: null,
+        address: null,
+      },
+    });
+
+    // Desvinculamos el método de pago del cliente, si tenía
+    const pm = await prisma.paymentMethod.findUnique({ where: { userId } });
+    if (pm) {
+      await axios.delete(`${MP_API}/v1/customers/${pm.mpCustomerId}/cards/${pm.mpCardId}`,
+        { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } }).catch(() => {});
+      await prisma.paymentMethod.delete({ where: { userId } });
+    }
+
+        await supabaseAdmin.auth.admin.deleteUser(userId).catch(() => {});
+
+    res.json({ message: 'Cuenta eliminada correctamente' });
+  } catch (error: any) {
+    console.error('💥 Error eliminando cuenta:', error);
+    res.status(500).json({ error: 'No se pudo eliminar la cuenta' });
+  }
 });
 
 app.listen(port, "0.0.0.0", () => {
