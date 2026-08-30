@@ -2941,10 +2941,8 @@ app.post('/webhooks/mercadopago', async (req, res) => {
     }
 
     const orderId = (req.query['data.id'] as string) || req.body?.data?.id;
-    console.log('📩 [WEBHOOK] Notificación recibida, orderId:', orderId);
 
     if (!orderId) {
-      console.log('⚠️ [WEBHOOK] Sin orderId en la notificación, ignorando');
       return res.sendStatus(200);
     }
 
@@ -2952,17 +2950,47 @@ app.post('/webhooks/mercadopago', async (req, res) => {
       { headers: { Authorization: `Bearer ${MP_ACCESS_TOKEN}` } });
 
     const payment = order.transactions?.payments?.[0];
+    const ref: string | undefined = order.external_reference;
 
-    if (order.external_reference && payment) {
-      const status = mapPaymentStatus(payment.status);
+    if (!ref || !payment) {
+      console.log('⚠️ [WEBHOOK] Order sin external_reference o sin payment:', order.id);
+      return res.sendStatus(200);
+    }
+
+    const status = mapPaymentStatus(payment.status);
+
+    if (ref.startsWith('signal-')) {
+      const serviceId = ref.replace('signal-', '');
       await prisma.service.update({
-        where: { id: order.external_reference },
+        where: { id: serviceId },
+        data: {
+          signalMpPaymentId: String(payment.id),
+          signalPaymentStatus: status as any,
+          signalPaidAt: status === 'approved' ? new Date() : null,
+        },
+      });
+      console.log(`✅ [WEBHOOK] Seña del servicio ${serviceId} actualizada a status: ${status}`);
+    } else if (ref.startsWith('latecancel-')) {
+      const serviceId = ref.replace('latecancel-', '');
+      const updateData: any = {
+        cancellationChargeMpPaymentId: String(payment.id),
+        cancellationChargeStatus: status as any,
+      };
+      if (status === 'approved') {
+        updateData.cancellationChargedAt = new Date();
+        updateData.status = 'CANCELLED';
+      }
+      await prisma.service.update({ where: { id: serviceId }, data: updateData });
+      console.log(`✅ [WEBHOOK] Cancelación tardía del servicio ${serviceId} actualizada a status: ${status}`);
+    } else {
+      // Pago final del servicio: external_reference es el id crudo, sin prefijo
+      await prisma.service.update({
+        where: { id: ref },
         data: { mpPaymentId: String(payment.id), paymentStatus: status as any, paidAt: status === 'approved' ? new Date() : null },
       });
-      console.log(`✅ [WEBHOOK] Servicio ${order.external_reference} actualizado a status: ${status}`);
-    } else {
-      console.log('⚠️ [WEBHOOK] Order sin external_reference o sin payment:', order.id);
+      console.log(`✅ [WEBHOOK] Servicio ${ref} actualizado a status: ${status}`);
     }
+
     res.sendStatus(200);
   } catch (error: any) {
     console.error('💥 [WEBHOOK] Error procesando notificación:', error.response?.data || error.message);
