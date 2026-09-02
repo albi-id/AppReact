@@ -732,7 +732,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         status: service.status,
         amount: service.amount,
         rating: service.rating,
-        unreadMessages: service.unreadMessages || 0,
+        unreadMessages: Number(service.unreadMessages || 0),
         requestedAt: service.requestedAt,
         acceptedAt: service.acceptedAt,
         arrivedAt: service.arrivedAt,
