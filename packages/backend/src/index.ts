@@ -690,7 +690,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         s.rating,
         s.review,
         s."requestedAt",
-        (SELECT COUNT(*) FROM "Message" m WHERE m."serviceId" = s.id AND m."receiverId" = $1 AND m.read = false) as "unreadMessages",
+        (SELECT COUNT(*) FROM "Message" m WHERE m."serviceId" = s.id AND m."receiverId" = $2 AND m.read = false) as "unreadMessages",
         s."acceptedAt",
         s."arrivedAt",
         s."completedAt",
@@ -718,7 +718,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         AND s.status IN ('OFFERED', 'ACCEPTED', 'ARRIVED', 'COMPLETED')
       ORDER BY s."requestedAt" DESC
       LIMIT 50;
-    `, professional.id);
+    `, professional.id, req.user.id);
 
         // Formateo 
     const formattedServices = services.map((service: any) => {
