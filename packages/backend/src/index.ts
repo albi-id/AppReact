@@ -570,6 +570,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
         s.rating,
         s.review,
         s."requestedAt",
+        (SELECT COUNT(*) FROM "Message" m WHERE m."serviceId" = s.id AND m."receiverId" = $1 AND m.read = false) as "unreadMessages",
         s."acceptedAt",
         s."arrivedAt",
         s."completedAt",
@@ -609,6 +610,7 @@ app.get('/services/my', authenticate, async (req: any, res: any) => {
       amount: service.amount,
       rating: service.rating,
       review: service.review,
+      unreadMessages: Number(service.unreadMessages || 0),
       requestedAt: service.requestedAt,
       acceptedAt: service.acceptedAt,
       cityId: service.cityId,
@@ -688,6 +690,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         s.rating,
         s.review,
         s."requestedAt",
+        (SELECT COUNT(*) FROM "Message" m WHERE m."serviceId" = s.id AND m."receiverId" = $1 AND m.read = false) as "unreadMessages",
         s."acceptedAt",
         s."arrivedAt",
         s."completedAt",
@@ -729,6 +732,7 @@ app.get('/services/professional/my', authenticate, async (req: any, res: any) =>
         status: service.status,
         amount: service.amount,
         rating: service.rating,
+        unreadMessages: service.unreadMessages || 0,
         requestedAt: service.requestedAt,
         acceptedAt: service.acceptedAt,
         arrivedAt: service.arrivedAt,
@@ -1222,7 +1226,7 @@ app.patch('/services/:serviceId/finish', authenticate, async (req: any, res: any
       console.log(`⏳ [FINISH-FIXED] Servicio por presupuesto #${serviceId} marcado como COMPLETED por profesional. Esperando monto del cliente.`);
 
       return res.json({ 
-        message: 'Trabajo finalizado. Esperando que el cliente ingrese el monto acordado.',
+        message: 'Trabajo finalizado. Esperando que el cliente ingrese el monto.',
         isFixedPrice: true,
         service: updated
       });
@@ -2112,7 +2116,7 @@ app.patch('/services/:serviceId/reject-amount', authenticate, async (req: any, r
       data: { proposedAmount: null, amountProposedAt: null },
     });
 
-    res.json({ message: 'Monto rechazado. Podés acordar un nuevo monto por chat.' });
+    res.json({ message: 'Monto rechazado. Podés acordar un nuevo monto con el profesional.' });
   } catch (error: any) {
     console.error('💥 Error rechazando monto:', error);
     res.status(500).json({ error: 'Error interno' });
@@ -2237,8 +2241,8 @@ app.get('/services/:serviceId/messages', authenticate, async (req: any, res: any
       },
       orderBy: { createdAt: 'asc' }
     });
-
-    res.json({ messages });
+    const otherUserId = isRequester ? service.professional?.user?.id : service.requesterId;
+    res.json({ messages, otherUserId });
 
   } catch (error: any) {
     console.error('💥 Error al obtener mensajes:', error);
@@ -2523,7 +2527,14 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
           take: 1,
           orderBy: { createdAt: 'desc' },
           include: { sender: { select: { id: true, firstName: true, lastName: true } } }
-        }
+        },
+        _count: {
+          select: {
+            messages: {
+              where: { receiverId: userId, read: false },
+            },
+          },
+        },
       },
       orderBy: { id: 'desc' }
     });
@@ -2549,14 +2560,17 @@ app.get('/services/my-conversations', authenticate, async (req: any, res: any) =
   const lastMessageDate = lastMessage?.createdAt || conv.requestedAt;
 
   const existing = grouped.get(otherUserId);
+  const unreadHere = conv._count?.messages || 0;
   if (!existing || new Date(lastMessageDate) > new Date(existing._lastMessageDate)) {
     grouped.set(otherUserId, {
       id: conv.id, type: conv.type, status: conv.status,
       otherUserId, otherName,
       lastMessage: lastMessage?.content || null,
-      unreadCount: 0,
+      unreadCount: (existing?.unreadCount || 0) + unreadHere,
       _lastMessageDate: lastMessageDate,
     });
+  } else {
+    existing.unreadCount += unreadHere;
   }
 });
 
@@ -2635,7 +2649,6 @@ app.get('/chats/:professionalId/messages', authenticate, async (req: any, res: a
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-
     res.json({ messages: messages.reverse() });
   } catch (error: any) {
     console.error('💥 Error unificado:', error);
@@ -3457,6 +3470,23 @@ app.delete('/users/me/delete-account', authenticate, async (req: any, res: any) 
   } catch (error: any) {
     console.error('💥 Error eliminando cuenta:', error);
     res.status(500).json({ error: 'No se pudo eliminar la cuenta' });
+  }
+});
+app.patch('/services/:serviceId/messages/mark-read', authenticate, async (req: any, res: any) => {
+  const { serviceId } = req.params;
+  try {
+    await prisma.message.updateMany({
+      where: {
+        serviceId,
+        receiverId: req.user.id,
+        read: false,
+      },
+      data: { read: true },
+    });
+    res.json({ message: 'Mensajes marcados como leídos' });
+  } catch (error: any) {
+    console.error('💥 Error marcando mensajes como leídos:', error);
+    res.status(500).json({ error: 'Error al marcar mensajes como leídos' });
   }
 });
 
