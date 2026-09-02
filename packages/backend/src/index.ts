@@ -3474,11 +3474,41 @@ app.delete('/users/me/delete-account', authenticate, async (req: any, res: any) 
 });
 app.patch('/services/:serviceId/messages/mark-read', authenticate, async (req: any, res: any) => {
   const { serviceId } = req.params;
+  const userId = req.user.id;
   try {
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      include: { professional: { select: { userId: true } } },
+    });
+    if (!service) {
+      return res.status(404).json({ error: 'Servicio no encontrado' });
+    }
+    const isRequester = service.requesterId === userId;
+    const isProfessional = service.professional?.userId === userId;
+    if (!isRequester && !isProfessional) {
+      return res.status(403).json({ error: 'No tenés permiso' });
+    }
+    // La otra persona de esta conversación — marcamos leídos TODOS los
+    // mensajes que nos mandó, sin importar en cuál serviceId compartido
+    // quedaron, ya que el chat se muestra unificado por persona.
+    const otherUserId = isRequester ? service.professional?.userId : service.requesterId;
+    if (!otherUserId) {
+      return res.json({ message: 'Mensajes marcados como leídos' });
+    }
+    const relatedServices = await prisma.service.findMany({
+      where: {
+        OR: [
+          { requesterId: userId, professional: { userId: otherUserId } },
+          { requesterId: otherUserId, professional: { userId } },
+        ],
+      },
+      select: { id: true },
+    });
+    const serviceIds = relatedServices.map((s) => s.id);
     await prisma.message.updateMany({
       where: {
-        serviceId,
-        receiverId: req.user.id,
+        serviceId: { in: serviceIds },
+        receiverId: userId,
         read: false,
       },
       data: { read: true },
