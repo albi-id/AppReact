@@ -1828,6 +1828,10 @@ app.get('/professionals/:id', async (req: any, res: any) => {
       return res.status(404).json({ error: 'Profesional no encontrado' });
     }
 
+    const completedServicesCount = await prisma.service.count({
+      where: { professionalId: id, status: 'COMPLETED' }
+    });
+
     // Obtener todas las reseñas (reviews) de los servicios completados
     const reviews = await prisma.service.findMany({
       where: {
@@ -1850,6 +1854,7 @@ app.get('/professionals/:id', async (req: any, res: any) => {
     res.json({
       message: 'Detalle del profesional',
       professional,
+      completedServicesCount,
       reviews: reviews.map(r => ({
         id: r.id,
         rating: r.rating,
