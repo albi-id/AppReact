@@ -94,15 +94,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   pricePerMinute: 0,       
   signalAmount: 10,
   professionType: 'TRADE'       
-},
-{
-    key: 'Electricista',
-     label: 'Electricista',
-    pricePerMinute: 2,
-    basePrice: 12,
-    signalAmount: 10,
-    professionType: 'TRADE'
-   },
+}, 
 
 {
   key: 'Jardinero/a',           // por presupuesto por eso pongo 0
