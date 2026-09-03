@@ -15,7 +15,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Supervisora c/ retiro',
     pricePerMinute: 77.4222,  // $4.645,33 / 60
     basePrice: 387.11,        // pricePerMinute * 5 (5 min mínimos)
-    signalAmount: 10,
+    signalAmount: 387.11,
     professionType: 'TRADE'
   },
     
@@ -24,7 +24,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Personal para tareas específicas c/ retiro',
     pricePerMinute: 73.7090,  // $4.422,54 / 60
     basePrice: 368.55,        // pricePerMinute * 5
-    signalAmount: 10,
+    signalAmount: 368.55,
     professionType: 'TRADE'
   },
  {
@@ -32,15 +32,15 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Ninero/a',
     pricePerMinute: 69.7656,  // $4.185,94 / 60 — ⚠️ ver nota de confianza abajo
     basePrice: 348.82,        // pricePerMinute * 5
-    signalAmount: 10,
+    signalAmount: 348.82,
     professionType: 'TRADE'
   },
    {
-    key: 'Ninero/a', //Cuidador/a de personas c/ retiro
-    label: 'Ninero/a',
+    key: 'Niñero/a', //Cuidador/a de personas c/ retiro
+    label: 'Niñero/a',
     pricePerMinute: 0,   
     basePrice: 0,         
-    signalAmount: 10,
+    signalAmount: 348.82,
     professionType: 'TRADE'
   },
    {
@@ -48,7 +48,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Cuidador/a de adultos mayores',
     pricePerMinute: 69.7656,  // $4.185,94 / 60 — ⚠️ ver nota de confianza abajo
     basePrice: 348.82,        // pricePerMinute * 5
-    signalAmount: 10,
+    signalAmount: 348.82,
     professionType: 'TRADE'
   },
      {
@@ -56,7 +56,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Cuidador/a de adultos mayores',
     pricePerMinute: 0,   
     basePrice: 0,        
-    signalAmount: 10,
+    signalAmount: 348.82,
     professionType: 'TRADE'
   },
 
@@ -65,7 +65,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Personal para tareas generales c/ retiro',
     pricePerMinute: 65.2440,  // $3.914,64 / 60
     basePrice: 326.22,        // pricePerMinute * 5
-    signalAmount: 10,
+    signalAmount:  326.22,
     professionType: 'TRADE'
   },
  
@@ -74,7 +74,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Ingeniero/a',
     pricePerMinute: 0,
     basePrice: 0,
-    signalAmount: 10,
+    signalAmount: 2500,
     professionType: 'REGULATED_PROFESSION'
    },
 
@@ -83,7 +83,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
     label: 'Abogado/a',
     pricePerMinute: 0,
     basePrice: 0,
-    signalAmount: 10,
+    signalAmount: 2500,
     professionType: 'REGULATED_PROFESSION'
    },
    
@@ -92,7 +92,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Electricista',            
   basePrice: 0,                   
   pricePerMinute: 0,       
-  signalAmount: 10,
+  signalAmount: 500,
   professionType: 'TRADE'       
 }, 
 
@@ -101,7 +101,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Jardinero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,    
-  signalAmount: 10,
+  signalAmount: 400,
   professionType: 'TRADE'          
 },
 
@@ -110,7 +110,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Enfermero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,        
-  signalAmount: 10,
+  signalAmount: 800,
   professionType: 'REGULATED_PROFESSION'      
 },
 
@@ -119,7 +119,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Mecánico/a de auto',            
   basePrice: 0,                   
   pricePerMinute: 0,        
-  signalAmount: 10,
+  signalAmount: 500,
   professionType: 'TRADE'      
 },
 
@@ -129,7 +129,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Mecánico/a de moto',            
   basePrice: 0,                   
   pricePerMinute: 0,    
-  signalAmount: 10,
+  signalAmount: 500,
   professionType: 'TRADE'          
 },
 
@@ -138,7 +138,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Gomero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,   
-  signalAmount: 10,
+  signalAmount: 500,
   professionType: 'TRADE'           
 },
 
@@ -147,7 +147,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Cerrajero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,  
-  signalAmount: 10,
+  signalAmount: 800,
   professionType: 'TRADE'            
 },
 
@@ -156,7 +156,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Remolques',            
   basePrice: 0,                   
   pricePerMinute: 0, 
-  signalAmount: 10,
+  signalAmount: 1000,
   professionType: 'TRADE'             
 },
 
@@ -165,7 +165,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Pintor/a',            
   basePrice: 0,                   
   pricePerMinute: 0, 
-  signalAmount: 10,
+  signalAmount: 800,
   professionType: 'TRADE'             
 },
 
@@ -174,7 +174,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Albañil',            
   basePrice: 0,                   
   pricePerMinute: 0,     
-  signalAmount: 10,
+  signalAmount: 800,
   professionType: 'TRADE'         
 },
 
@@ -183,7 +183,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Plomero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,       
-  signalAmount: 10,
+  signalAmount: 800,
   professionType: 'TRADE'       
 },
 
@@ -192,7 +192,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Herrero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,    
-  signalAmount: 10,
+  signalAmount: 800,
   professionType: 'TRADE'         
 },
 
@@ -201,7 +201,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Canaletero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,   
-  signalAmount: 10, 
+  signalAmount: 800, 
   professionType: 'TRADE'          
 },
 
@@ -210,7 +210,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Carpintero/a',            
   basePrice: 0,                   
   pricePerMinute: 0,  
-  signalAmount: 10,   
+  signalAmount: 800,   
   professionType: 'TRADE'         
 },
 
@@ -219,7 +219,16 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Limpieza de terreno',            
   basePrice: 0,                   
   pricePerMinute: 0,  
-  signalAmount: 10,   
+  signalAmount: 800,   
+  professionType: 'TRADE'         
+},
+
+{
+  key: 'Cortador de pasto',           
+  label: 'Cortador de pasto',            
+  basePrice: 0,                   
+  pricePerMinute: 0,  
+  signalAmount: 800,   
   professionType: 'TRADE'         
 },
  
@@ -228,7 +237,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Podólogo/a',            
   basePrice: 0,                   
   pricePerMinute: 0, 
-  signalAmount: 10,  
+  signalAmount: 500,  
   professionType: 'REGULATED_PROFESSION'           
 },
 
@@ -237,7 +246,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Manicura',            
   basePrice: 0,                   
   pricePerMinute: 0, 
-  signalAmount: 10, 
+  signalAmount: 500, 
   professionType: 'TRADE'            
 },
 
@@ -246,7 +255,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Peluquería',            
   basePrice: 0,                   
   pricePerMinute: 0,  
-  signalAmount: 10,
+  signalAmount: 500,
   professionType: 'TRADE'            
 },
 
@@ -255,7 +264,7 @@ export const SERVICE_TYPES: ServiceTypeConfig[] = [
   label: 'Maquillador/a',            
   basePrice: 0,                   
   pricePerMinute: 0,    
-  signalAmount: 10,
+  signalAmount: 800,
   professionType: 'TRADE'          
 },
   
