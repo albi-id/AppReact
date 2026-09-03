@@ -1776,7 +1776,7 @@ app.get('/professionals', async (req: any, res: any) => {
       ];
     }
 
-    const [professionals, total] = await Promise.all([
+    const [professionalsRaw, total] = await Promise.all([
       prisma.professional.findMany({
         where,
         include: { 
@@ -1793,6 +1793,23 @@ app.get('/professionals', async (req: any, res: any) => {
       }),
       prisma.professional.count({ where })
     ]);
+
+    // reviewCount guardado en Professional cuenta TODAS las calificaciones,
+    // pero el perfil solo muestra las que tienen texto escrito — recalculamos
+    // acá para que el número coincida con lo que el usuario ve al entrar.
+    const professionals = await Promise.all(
+      professionalsRaw.map(async (p) => {
+        const [writtenReviewCount, completedServicesCount] = await Promise.all([
+          prisma.service.count({
+            where: { professionalId: p.id, status: 'COMPLETED', review: { not: null } }
+          }),
+          prisma.service.count({
+            where: { professionalId: p.id, status: 'COMPLETED' }
+          }),
+        ]);
+        return { ...p, writtenReviewCount, completedServicesCount };
+      })
+    );
 
     res.json({
       professionals,
